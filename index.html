@@ -189,7 +189,7 @@
                 </div>
 
                 <div class="prompt-area">
-                  <span class="card-label" id="promptLabel">中文提示</span>
+                  <div class="prompt-heading"><span class="card-label" id="promptLabel">中文提示</span><button class="text-button" id="speakPromptButton" type="button" hidden>听中文</button></div>
                   <h2 id="promptText">准备开始</h2>
                   <p class="think-hint" id="thinkHint">先在心里或大声说出英文，再点开答案</p>
                 </div>
@@ -232,7 +232,7 @@
                 <h1>背诵作业本</h1>
                 <p class="muted">每次作业单独保存，进度不会互相混在一起。</p>
               </div>
-              <button class="button button-primary" type="button" data-action="import">＋ 添加作业</button>
+              <button class="button button-primary library-add-button" type="button" data-action="import" aria-label="新建背诵作业本">＋ 新建</button>
             </div>
             <div class="library-list" id="libraryList"></div>
           </section>
@@ -265,7 +265,14 @@
         </div>
 
         <section class="import-panel" data-import-panel="paste">
-          <p class="field-help">每行一条。中英文之间可用竖线“|”或 Tab；像图片中那样直接复制“中文 英文”也能自动识别。</p>
+          <div class="import-format-guide">
+            <strong>用标签，分清提示和要背的英文</strong>
+            <p><span>【中文】</span>后面填提示，<span>【英文】</span>后面填实际要背的内容。标签不会显示在背诵卡片中，也不会被朗读。</p>
+            <pre>【中文】名称｜【英文】name
+【中文】我性格外向｜【英文】I am outgoing.</pre>
+            <button class="text-button" id="insertExampleButton" type="button">填入示例</button>
+            <p class="field-help">每条另起一行。只背英文可写“【英文】Hello.”；课文可在【英文】后换行写整段，下一个标签表示下一条。旧版“中文 | 英文”格式仍可使用。</p>
+          </div>
         </section>
 
         <section class="import-panel file-panel" data-import-panel="file" hidden>
@@ -293,17 +300,17 @@
         </section>
 
         <label class="field content-field">
-          <span>背诵内容 <small>（可在保存前修改）</small></span>
-          <textarea id="contentInput" rows="9" placeholder="示例：&#10;我对科学感兴趣 | I am interested in science.&#10;我性格外向 | I am outgoing."></textarea>
+          <span>背诵内容 <small>（中文是提示，英文是要背的内容）</small></span>
+          <textarea id="contentInput" rows="7" placeholder="【中文】名称｜【英文】name&#10;【中文】我性格外向｜【英文】I am outgoing."></textarea>
         </label>
 
         <div class="import-options">
-          <label><input id="paragraphSplitInput" type="checkbox" /> 按空行分成课文段落</label>
-          <button class="text-button" id="previewImportButton" type="button">解析并预览</button>
+          <label><input id="paragraphSplitInput" type="checkbox" /> 无标签的课文按空行分段</label>
+          <button class="text-button" id="previewImportButton" type="button">核对内容</button>
         </div>
 
         <section class="import-preview" id="importPreview" hidden>
-          <div class="section-heading compact"><h3 id="previewHeading">识别到 0 条</h3><span class="muted">请抽查中英文是否对应</span></div>
+          <div class="section-heading compact"><h3 id="previewHeading">核对 0 条</h3><span class="muted">可直接修改下方内容，再确认保存</span></div>
           <div class="preview-list" id="previewList"></div>
         </section>
 
@@ -316,7 +323,7 @@
         <p class="form-error" id="importError" role="alert" hidden></p>
         <div class="modal-actions">
           <button class="button button-quiet" type="button" data-close-dialog="importDialog">取消</button>
-          <button class="button button-primary" id="saveAssignmentButton" type="submit">保存并开始背诵</button>
+          <button class="button button-primary" id="saveAssignmentButton" type="submit">下一步：核对内容</button>
         </div>
       </form>
     </dialog>
@@ -324,8 +331,8 @@
     <dialog class="modal" id="editItemDialog">
       <form method="dialog" class="modal-card small" id="editItemForm">
         <div class="modal-header"><h2>修改当前内容</h2><button class="icon-button" type="button" data-close-dialog="editItemDialog" aria-label="关闭">×</button></div>
-        <label class="field"><span>中文提示（可选）</span><textarea id="editPromptInput" rows="3"></textarea></label>
-        <label class="field"><span>英文背诵内容</span><textarea id="editAnswerInput" rows="5" required></textarea></label>
+        <label class="field"><span>【中文】提示（可选）</span><textarea id="editPromptInput" rows="3" placeholder="如：名称；这里不用填写标签"></textarea></label>
+        <label class="field"><span>【英文】要背的内容</span><textarea id="editAnswerInput" rows="5" placeholder="如：name；这里不用填写标签" required></textarea></label>
         <label class="field"><span>备注（可选）</span><input id="editNoteInput" /></label>
         <label class="field"><span>本条朗读 MP3 <small>（上传后优先于自动朗读）</small></span><input id="editAudioInput" type="file" accept="audio/mpeg,.mp3" /></label>
         <div class="audio-meta-row"><span id="editAudioName">尚未上传 MP3</span><button class="text-button danger-text" id="removeEditAudioButton" type="button" hidden>移除音频</button></div>
@@ -352,16 +359,20 @@
       <form method="dialog" class="modal-card small" id="settingsForm">
         <div class="modal-header"><div><p class="eyebrow">偏好设置</p><h2>朗读与数据</h2></div><button class="icon-button" type="button" data-close-dialog="settingsDialog" aria-label="关闭">×</button></div>
         <label class="field"><span>英语发音</span><select id="voiceSelect"><option value="">系统推荐英语声音</option></select></label>
+        <label class="field"><span>中文发音 · 普通话</span><select id="chineseVoiceSelect"><option value="">推荐普通话声音</option></select></label>
+        <p class="field-help">中文按正常语速、自然音高朗读。可选择声音后先试听，无需先保存。</p>
         <div class="form-grid two-columns">
-          <label class="field"><span>朗读速度</span><select id="rateSelect"><option value="0.7">较慢 0.7×</option><option value="0.85">慢速 0.85×</option><option value="1">正常 1.0×</option><option value="1.15">稍快 1.15×</option></select></label>
+          <label class="field"><span>英文 / MP3 速度</span><select id="rateSelect"><option value="0.7">较慢 0.7×</option><option value="0.85">慢速 0.85×</option><option value="1">正常 1.0×</option><option value="1.15">稍快 1.15×</option></select></label>
           <label class="field"><span>每条朗读</span><select id="repeatSelect"><option value="1">1 遍</option><option value="2">2 遍</option><option value="3">3 遍</option></select></label>
         </div>
         <label class="toggle-row"><span><strong>翻开答案后自动朗读</strong><small>帮助孩子及时校正发音</small></span><input id="autoSpeakInput" type="checkbox" role="switch" /></label>
         <div class="data-actions">
-          <button class="button button-secondary" id="testSpeechButton" type="button">测试中英文朗读</button>
+          <button class="button button-secondary" id="testSpeechButton" type="button">试听所选声音</button>
           <button class="button button-secondary" id="ttsSettingsButton" type="button" hidden>系统朗读设置</button>
         </div>
+        <p class="field-help speech-test-copy">试听原文：名称。名词。今天我们一起学习英语。<span lang="en">I am interested in science.</span></p>
         <p class="field-help" id="ttsStatusText">正在检查朗读服务…</p>
+        <p class="field-help">声音自然程度取决于手机已安装的语音包；可在系统朗读设置中更换。上传的 MP3 仍优先播放。</p>
         <hr />
         <div class="data-actions">
           <button class="button button-secondary" id="exportBackupButton" type="button">导出全部数据</button>
@@ -369,7 +380,7 @@
           <input class="sr-only" id="backupFileInput" type="file" accept="application/json,.json" />
         </div>
         <p class="field-help">进度默认保存在当前设备。JSON 备份包含作业和进度，但上传的 MP3 文件需在新设备重新添加。</p>
-        <div class="modal-actions"><button class="button button-primary" type="submit">保存设置</button></div>
+        <div class="modal-actions"><small class="app-version">版本 1.2.0</small><span class="spacer"></span><button class="button button-primary" type="submit">保存设置</button></div>
       </form>
     </dialog>
 

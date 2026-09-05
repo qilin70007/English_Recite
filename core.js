@@ -174,9 +174,48 @@ function parseParagraphs(text) {
     .map((answer) => ({ prompt: "", answer }));
 }
 
+// Labels take precedence over language guesses, including in paragraph mode.
+function parseLabeledText(text) {
+  const tags = [...text.matchAll(/【(中文|英文)】/g)];
+  if (!tags.length) return null;
+  if (stripListPrefix(text.slice(0, tags[0].index))) {
+    throw new Error("使用标签时，请让每条以【中文】或【英文】开头；不要混用未标注的内容。");
+  }
+  const items = [];
+  let current = null;
+  let hasAnswer = false;
+  const finish = () => {
+    if (!current) return;
+    if (!hasAnswer || !current.answer) {
+      throw new Error(`第 ${items.length + 1} 条缺少【英文】内容，请补充后预览。`);
+    }
+    items.push(current);
+  };
+  tags.forEach((tag, index) => {
+    const value = text.slice(tag.index + tag[0].length, tags[index + 1]?.index ?? text.length)
+      .replace(/[|｜\s]+$/, "").trim();
+    if (tag[1] === "中文" || hasAnswer) {
+      finish();
+      current = { prompt: "", answer: "" };
+      hasAnswer = false;
+    }
+    if (!current) current = { prompt: "", answer: "" };
+    if (tag[1] === "中文") current.prompt = value;
+    else {
+      current.answer = value;
+      hasAnswer = true;
+    }
+  });
+  finish();
+  return items;
+}
+
 export function parsePlainText(text, options = {}) {
   const normalized = normalizeText(text);
   if (!normalized) return [];
+
+  const labeledItems = parseLabeledText(normalized);
+  if (labeledItems) return labeledItems;
 
   if (options.splitMode === "paragraph") {
     return parseParagraphs(normalized);
@@ -283,6 +322,45 @@ export function detectSpeechLanguage(text = "") {
   return chineseCount > 0 && (latinCount === 0 || chineseCount * 2 >= latinCount)
     ? "zh-CN"
     : "en-US";
+}
+
+// Keep whole Chinese phrases intact, but never send mixed Chinese to an English voice.
+export function buildSpeechSegments(text = "") {
+  const segments = [];
+  let buffer = "";
+  let language = "";
+  for (const character of normalizeText(text)) {
+    const nextLanguage = hasChinese(character) ? "zh-CN" : hasLatin(character) ? "en-US" : "";
+    if (nextLanguage && language && nextLanguage !== language) {
+      if (buffer.trim()) segments.push({ text: buffer.trim(), language });
+      buffer = "";
+    }
+    if (nextLanguage) language = nextLanguage;
+    buffer += character;
+  }
+  if (buffer.trim()) segments.push({ text: buffer.trim(), language: language || "en-US" });
+  return segments.flatMap((segment) => {
+    // Stay below Android's input limit, splitting at sentence/word boundaries.
+    const chunks = [];
+    let remaining = segment.text;
+    while (remaining.length > 1500) {
+      const prefix = remaining.slice(0, 1500);
+      const boundaries = [...prefix.matchAll(/[。！？.!?\n]\s*|\s+/g)];
+      const last = boundaries.at(-1);
+      const cut = last && last.index > 500 ? last.index + last[0].length : 1500;
+      chunks.push({ text: remaining.slice(0, cut).trim(), language: segment.language });
+      remaining = remaining.slice(cut).trim();
+    }
+    if (remaining) chunks.push({ text: remaining, language: segment.language });
+    return chunks;
+  });
+}
+
+export function isMandarinVoice(voice = {}) {
+  const lang = String(voice.lang || "").replaceAll("_", "-").toLowerCase();
+  return /^(zh(?:-|$)|cmn(?:-|$))/.test(lang)
+    && !/^(zh-(hk|mo)|zh-yue)(-|$)/.test(lang)
+    && !/cantonese|粤语|廣東話|广东话/i.test(voice.name || "");
 }
 
 export function summarize(items = []) {

@@ -17,6 +17,7 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
+import android.speech.tts.Voice;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
 import android.webkit.RenderProcessGoneDetail;
@@ -32,6 +33,7 @@ import android.widget.Toast;
 import androidx.webkit.WebViewAssetLoader;
 
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -71,6 +73,7 @@ public class MainActivity extends Activity {
         // Android handles ducking/pausing of other media; speech continues on the media stream.
     };
     private String pendingJsonContent;
+    private boolean returningFromTtsSettings;
 
     private static final class PendingSpeech {
         final String text;
@@ -78,13 +81,15 @@ public class MainActivity extends Activity {
         final float rate;
         final int repeat;
         final String requestId;
+        final String voiceId;
 
-        PendingSpeech(String text, String languageTag, float rate, int repeat, String requestId) {
+        PendingSpeech(String text, String languageTag, float rate, int repeat, String requestId, String voiceId) {
             this.text = text;
             this.languageTag = languageTag;
             this.rate = rate;
             this.repeat = repeat;
             this.requestId = requestId;
+            this.voiceId = voiceId;
         }
     }
 
@@ -234,6 +239,11 @@ public class MainActivity extends Activity {
 
         List<String> installedPackages = installedTtsPackages();
         ttsEngineCandidates.clear();
+        // Respect the voice engine the user chose on their phone.
+        String systemEngine = Settings.Secure.getString(getContentResolver(), Settings.Secure.TTS_DEFAULT_SYNTH);
+        if (systemEngine != null && installedPackages.contains(systemEngine)) {
+            ttsEngineCandidates.add(systemEngine);
+        }
         if (installedPackages.contains(GOOGLE_TTS_PACKAGE)) {
             ttsEngineCandidates.add(GOOGLE_TTS_PACKAGE);
         }
@@ -253,6 +263,9 @@ public class MainActivity extends Activity {
         ttsEngineCandidates.addAll(iflytekPackages);
         ttsEngineCandidates.addAll(otherPackages);
         ttsEngineCandidates.add(SYSTEM_DEFAULT_ENGINE);
+        List<String> uniqueCandidates = new ArrayList<>(new LinkedHashSet<>(ttsEngineCandidates));
+        ttsEngineCandidates.clear();
+        ttsEngineCandidates.addAll(uniqueCandidates);
 
         ttsEngineIndex = -1;
         ttsInitFailed = false;
@@ -290,7 +303,7 @@ public class MainActivity extends Activity {
             if (previous != null) previous.shutdown();
 
             TextToSpeech.OnInitListener listener = status ->
-                    onTtsInitialized(generation, requestedEngine, status);
+                    mainHandler.post(() -> onTtsInitialized(generation, requestedEngine, status));
             TextToSpeech created = requestedEngine.isEmpty()
                     ? new TextToSpeech(this, listener)
                     : new TextToSpeech(this, listener, requestedEngine);
@@ -331,6 +344,8 @@ public class MainActivity extends Activity {
                         ? currentEnginePackage()
                         : requestedEngine;
                 configureTtsEngine(textToSpeech, generation);
+                if (webView != null) webView.post(() -> webView.evaluateJavascript(
+                        "window.dispatchEvent(new Event('native-tts-ready'));", null));
                 queuedSpeech = pendingSpeech;
                 pendingSpeech = null;
             } else {
@@ -407,8 +422,8 @@ public class MainActivity extends Activity {
         dispatchTtsEvent("native-tts-error", failedRequest);
     }
 
-    private void queueSpeech(String text, String languageTag, float rate, int repeat, String requestId) {
-        PendingSpeech speech = new PendingSpeech(text, languageTag, rate, repeat, requestId);
+    private void queueSpeech(String text, String languageTag, float rate, int repeat, String requestId, String voiceId) {
+        PendingSpeech speech = new PendingSpeech(text, languageTag, rate, repeat, requestId, voiceId);
         synchronized (this) {
             if (!ttsReady || textToSpeech == null) {
                 pendingSpeech = speech;
@@ -436,13 +451,14 @@ public class MainActivity extends Activity {
                     ? Locale.CHINA
                     : Locale.ENGLISH);
         }
-        if (isLanguageUnavailable(languageStatus)) {
+        if (isLanguageUnavailable(languageStatus) || !selectVoice(engine, speech)) {
             tryNextTtsEngine(speech);
             return;
         }
 
         engine.stop();
         engine.setSpeechRate(Math.max(0.5f, Math.min(2f, speech.rate)));
+        engine.setPitch(1.0f);
         requestSpeechAudioFocus();
 
         int safeRepeat = Math.max(1, Math.min(3, speech.repeat));
@@ -482,6 +498,63 @@ public class MainActivity extends Activity {
     private boolean isLanguageUnavailable(int languageStatus) {
         return languageStatus == TextToSpeech.LANG_MISSING_DATA
                 || languageStatus == TextToSpeech.LANG_NOT_SUPPORTED;
+    }
+
+    private boolean matchesVoice(Voice voice, boolean chinese) {
+        if (voice == null || voice.getLocale() == null) return false;
+        if (voice.getFeatures() != null
+                && voice.getFeatures().contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)) return false;
+        Locale locale = voice.getLocale();
+        String language = locale.getLanguage().toLowerCase(Locale.ROOT);
+        String country = locale.getCountry().toUpperCase(Locale.ROOT);
+        String name = voice.getName().toLowerCase(Locale.ROOT);
+        if (!chinese) return language.equals("en") || language.equals("eng");
+        return (language.equals("zh") || language.equals("zho") || language.equals("cmn"))
+                && !country.equals("HK") && !country.equals("HKG")
+                && !country.equals("MO") && !country.equals("MAC")
+                && !name.contains("cantonese") && !name.contains("yue")
+                && !name.contains("粤语") && !name.contains("廣東話");
+    }
+
+    private int voiceScore(Voice voice, boolean chinese) {
+        String country = voice.getLocale().getCountry();
+        int score = voice.getQuality();
+        // Prefer installed offline voices for reliable use in the car.
+        if (!voice.isNetworkConnectionRequired()) score += 10000;
+        if (chinese ? country.equalsIgnoreCase("CN") || country.equalsIgnoreCase("CHN")
+                : country.equalsIgnoreCase("US") || country.equalsIgnoreCase("USA")) score += 1000;
+        return score;
+    }
+
+    private List<Voice> availableVoices(TextToSpeech engine, boolean chinese) {
+        List<Voice> voices = new ArrayList<>();
+        try {
+            Set<Voice> all = engine.getVoices();
+            if (all != null) for (Voice voice : all) {
+                if (matchesVoice(voice, chinese)) voices.add(voice);
+            }
+        } catch (RuntimeException ignored) {
+            // Some old engines only expose their language default.
+        }
+        voices.sort((a, b) -> {
+            int score = Integer.compare(voiceScore(b, chinese), voiceScore(a, chinese));
+            return score != 0 ? score : a.getName().compareTo(b.getName());
+        });
+        return voices;
+    }
+
+    private boolean selectVoice(TextToSpeech engine, PendingSpeech speech) {
+        boolean chinese = speech.languageTag != null && speech.languageTag.startsWith("zh");
+        List<Voice> voices = availableVoices(engine, chinese);
+        for (Voice voice : voices) {
+            if ((activeTtsEngine + "|" + voice.getName()).equals(speech.voiceId)
+                    && engine.setVoice(voice) == TextToSpeech.SUCCESS) return true;
+        }
+        for (Voice voice : voices) {
+            if (engine.setVoice(voice) == TextToSpeech.SUCCESS) return true;
+        }
+        Voice fallback = engine.getVoice();
+        return fallback == null || matchesVoice(fallback, chinese);
     }
 
     private Locale localeFor(String languageTag) {
@@ -579,14 +652,43 @@ public class MainActivity extends Activity {
                     languageTagForText(content),
                     (float) rate,
                     repeat,
-                    requestId
+                    requestId,
+                    ""
             ));
         }
 
         @JavascriptInterface
         public void speakLocalized(String text, String languageTag, double rate, int repeat, String requestId) {
             if (text == null || text.trim().isEmpty() || requestId == null) return;
-            runOnUiThread(() -> queueSpeech(text.trim(), languageTag, (float) rate, repeat, requestId));
+            runOnUiThread(() -> queueSpeech(text.trim(), languageTag, (float) rate, repeat, requestId, ""));
+        }
+
+        @JavascriptInterface
+        public void speakWithVoice(String text, String languageTag, double rate, int repeat, String requestId, String voiceId) {
+            if (text == null || text.trim().isEmpty() || requestId == null) return;
+            runOnUiThread(() -> queueSpeech(text.trim(), languageTag, (float) rate, repeat, requestId, voiceId));
+        }
+
+        @JavascriptInterface
+        public String getVoices(String languageTag) {
+            JSONArray result = new JSONArray();
+            synchronized (MainActivity.this) {
+                if (!ttsReady || textToSpeech == null) return result.toString();
+                for (Voice voice : availableVoices(textToSpeech, languageTag != null && languageTag.startsWith("zh"))) {
+                    try {
+                        JSONObject item = new JSONObject();
+                        item.put("id", activeTtsEngine + "|" + voice.getName());
+                        item.put("name", voice.getName());
+                        item.put("lang", voice.getLocale().toLanguageTag());
+                        item.put("local", !voice.isNetworkConnectionRequired());
+                        item.put("quality", voice.getQuality());
+                        result.put(item);
+                    } catch (Exception ignored) {
+                        // Skip a malformed voice and keep the other choices.
+                    }
+                }
+            }
+            return result.toString();
         }
 
         @JavascriptInterface
@@ -610,6 +712,14 @@ public class MainActivity extends Activity {
     }
 
     private void openTtsSettings() {
+        stopNativeSpeech();
+        returningFromTtsSettings = true;
+        try {
+            startActivity(new Intent("com.android.settings.TTS_SETTINGS"));
+            return;
+        } catch (ActivityNotFoundException ignored) {
+            // Manufacturer settings may only provide the TTS data installer.
+        }
         try {
             startActivity(new Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA));
             return;
@@ -678,7 +788,10 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (webView != null) webView.onResume();
-        if (ttsInitFailed && !ttsInitializing) initializePreferredTts();
+        if (returningFromTtsSettings || (ttsInitFailed && !ttsInitializing)) {
+            returningFromTtsSettings = false;
+            initializePreferredTts();
+        }
     }
 
     @Override

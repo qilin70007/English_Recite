@@ -2,8 +2,9 @@ import {
   STATUS,
   buildCue,
   buildStudyEntries,
+  buildSpeechSegments,
   deduplicateItems,
-  detectSpeechLanguage,
+  isMandarinVoice,
   parseImportedContent,
   reviewedToday,
   summarize,
@@ -78,6 +79,7 @@ const elements = {
   currentStatusPill: $("#currentStatusPill"),
   audioSourceBadge: $("#audioSourceBadge"),
   promptLabel: $("#promptLabel"),
+  speakPromptButton: $("#speakPromptButton"),
   promptText: $("#promptText"),
   thinkHint: $("#thinkHint"),
   answerPanel: $("#answerPanel"),
@@ -93,6 +95,8 @@ const elements = {
   assignmentTitleInput: $("#assignmentTitleInput"),
   assignmentTypeInput: $("#assignmentTypeInput"),
   contentInput: $("#contentInput"),
+  insertExampleButton: $("#insertExampleButton"),
+  saveAssignmentButton: $("#saveAssignmentButton"),
   paragraphSplitInput: $("#paragraphSplitInput"),
   contentFileInput: $("#contentFileInput"),
   assignmentAudioInput: $("#assignmentAudioInput"),
@@ -132,6 +136,7 @@ const elements = {
   settingsDialog: $("#settingsDialog"),
   settingsForm: $("#settingsForm"),
   voiceSelect: $("#voiceSelect"),
+  chineseVoiceSelect: $("#chineseVoiceSelect"),
   rateSelect: $("#rateSelect"),
   repeatSelect: $("#repeatSelect"),
   autoSpeakInput: $("#autoSpeakInput"),
@@ -159,6 +164,7 @@ function defaultState() {
     assignments: [],
     settings: {
       voiceURI: "",
+      chineseVoiceURI: "",
       rate: 0.85,
       repeat: 2,
       autoSpeak: true,
@@ -225,6 +231,7 @@ let state = loadState();
 let currentView = "home";
 let session = null;
 let parsedImportItems = [];
+let importPreviewSignature = "";
 let importFileFormat = "auto";
 let selectedPhotoFile = null;
 let photoObjectUrl = "";
@@ -240,6 +247,7 @@ let bulkEditAssignmentId = null;
 let bulkDraftItems = [];
 let bulkAssignmentAudioRemoveRequested = false;
 let deferredInstallPrompt = null;
+let markAdvanceTimer = null;
 
 function escapeHtml(value = "") {
   return String(value)
@@ -428,10 +436,12 @@ function renderLibrary() {
             <button class="button button-secondary" type="button" data-assignment-action="focus" data-assignment-id="${escapeHtml(assignment.id)}" ${focusCount ? "" : "disabled"}>重点复习</button>
             <button class="button button-primary" type="button" data-assignment-action="start" data-assignment-id="${escapeHtml(assignment.id)}">开始背诵</button>
             <button class="button button-secondary" type="button" data-assignment-action="edit" data-assignment-id="${escapeHtml(assignment.id)}">整体编辑</button>
-            <button class="button button-quiet menu-button" type="button" data-assignment-action="move-up" data-assignment-id="${escapeHtml(assignment.id)}" title="作业本上移" aria-label="作业本上移" ${assignmentIndex === 0 ? "disabled" : ""}>↑</button>
-            <button class="button button-quiet menu-button" type="button" data-assignment-action="move-down" data-assignment-id="${escapeHtml(assignment.id)}" title="作业本下移" aria-label="作业本下移" ${assignmentIndex === state.assignments.length - 1 ? "disabled" : ""}>↓</button>
+            <details class="assignment-more"><summary class="button button-quiet">更多 ▾</summary><div class="assignment-more-actions">
+            <button class="button button-quiet menu-button" type="button" data-assignment-action="move-up" data-assignment-id="${escapeHtml(assignment.id)}" ${assignmentIndex === 0 ? "disabled" : ""}>↑ 上移</button>
+            <button class="button button-quiet menu-button" type="button" data-assignment-action="move-down" data-assignment-id="${escapeHtml(assignment.id)}" ${assignmentIndex === state.assignments.length - 1 ? "disabled" : ""}>↓ 下移</button>
             <button class="button button-quiet menu-button" type="button" data-assignment-action="export" data-assignment-id="${escapeHtml(assignment.id)}" title="导出这一份作业">导出</button>
             <button class="button button-quiet menu-button danger-text" type="button" data-assignment-action="delete" data-assignment-id="${escapeHtml(assignment.id)}" title="删除作业">删除</button>
+            </div></details>
           </div>
         </article>`;
     })
@@ -581,6 +591,7 @@ function renderStudy() {
   elements.currentStatusPill.textContent = STATUS_LABELS[item.status] || STATUS_LABELS[STATUS.NEW];
   elements.currentStatusPill.className = `status-pill status-${item.status || STATUS.NEW}`;
   elements.audioSourceBadge.hidden = !item.audio;
+  elements.speakPromptButton.hidden = !item.prompt;
   elements.speakButton.querySelector("span").textContent = item.audio ? "播放 MP3" : "朗读";
   elements.speakButton.setAttribute("aria-label", item.audio ? "播放当前内容的 MP3" : "朗读当前内容");
   $$(".status-button").forEach((button) => {
@@ -623,6 +634,7 @@ function revealAnswer() {
 }
 
 function markCurrentItem(status) {
+  if (markAdvanceTimer !== null) return;
   const item = getCurrentItem();
   const assignment = getSessionAssignment();
   if (!item || !assignment) return;
@@ -633,7 +645,10 @@ function markCurrentItem(status) {
   assignment.updatedAt = new Date().toISOString();
   saveState();
   renderStudy();
-  window.setTimeout(() => moveItem(1), 180);
+  markAdvanceTimer = window.setTimeout(() => {
+    markAdvanceTimer = null;
+    moveItem(1);
+  }, 250);
 }
 
 function moveItem(direction) {
@@ -664,15 +679,14 @@ function finishSession() {
   elements.completionDialog.showModal();
 }
 
-function chooseVoice(language = "en-US") {
+function chooseVoice(language = "en-US", settings = state.settings) {
   const voices = speechSynthesis.getVoices();
-  if (language.startsWith("en") && state.settings.voiceURI) {
-    const selected = voices.find((voice) => voice.voiceURI === state.settings.voiceURI);
-    if (selected) return selected;
-  }
   const candidates = voices.filter((voice) => language.startsWith("zh")
-    ? /^zh[-_]/i.test(voice.lang)
+    ? isMandarinVoice(voice)
     : /^en[-_]/i.test(voice.lang));
+  const selectedId = language.startsWith("zh") ? settings.chineseVoiceURI : settings.voiceURI;
+  const selected = candidates.find((voice) => voice.voiceURI === selectedId);
+  if (selected) return selected;
   if (language.startsWith("zh")) {
     return candidates.find((voice) => /普通话|Mandarin|Xiaoxiao|Google.*中文/i.test(voice.name))
       || candidates.find((voice) => /^zh[-_](CN|Hans)/i.test(voice.lang))
@@ -751,12 +765,16 @@ function stopSpeech() {
 }
 
 function stopSpeechAndContinuous() {
+  if (markAdvanceTimer !== null) {
+    clearTimeout(markAdvanceTimer);
+    markAdvanceTimer = null;
+  }
   continuousPlaying = false;
   stopSpeech();
   updateContinuousButton();
 }
 
-function speakText(text, onDone) {
+function speakText(text, onDone, options = {}) {
   const hasNativeTts = hasNativeTtsBridge();
   if (!hasNativeTts && !("speechSynthesis" in window)) {
     showToast("当前浏览器不支持自动朗读，请换用 Chrome、Edge 或 Safari。", 3500);
@@ -770,76 +788,86 @@ function speakText(text, onDone) {
 
   stopSpeech();
   const runId = speechRunId;
-  const language = detectSpeechLanguage(content);
-  const repeat = Math.max(1, Math.min(3, Number(state.settings.repeat) || 1));
-  let completed = 0;
+  const settings = { ...state.settings, ...options };
+  const segments = buildSpeechSegments(content);
+  const repeat = Math.max(1, Math.min(3, Number(settings.repeat) || 1));
+  let step = 0;
   elements.speakButton.classList.add("speaking");
-
-  if (hasNativeTts) {
-    const requestId = `native-${runId}-${Date.now()}`;
-    const cleanupNativeListeners = () => {
-      window.removeEventListener("native-tts-done", handleDone);
-      window.removeEventListener("native-tts-error", handleError);
-      if (nativeTtsCleanup === cleanupNativeListeners) nativeTtsCleanup = null;
-    };
-    const handleDone = (event) => {
-      if (event.detail?.id !== requestId) return;
-      cleanupNativeListeners();
-      if (runId !== speechRunId) return;
+  const fail = () => {
+    if (runId !== speechRunId) return;
+    stopSpeechAndContinuous();
+    updateTtsStatus();
+    showToast("朗读未成功，请在设置中试听其他声音，或检查普通话/英语语音包。", 4500);
+  };
+  const next = () => {
+    if (runId !== speechRunId) return;
+    if (step >= segments.length * repeat) {
       elements.speakButton.classList.remove("speaking");
       onDone?.();
-    };
-    const handleError = (event) => {
-      if (event.detail?.id !== requestId) return;
-      cleanupNativeListeners();
-      if (runId !== speechRunId) return;
-      elements.speakButton.classList.remove("speaking");
-      updateTtsStatus();
-      showToast("朗读没有成功，请到设置中检查系统朗读服务和中英文语音包。", 4500);
-    };
-    window.addEventListener("native-tts-done", handleDone);
-    window.addEventListener("native-tts-error", handleError);
-    nativeTtsCleanup = cleanupNativeListeners;
-    try {
-      if (typeof window.AndroidTts.speakLocalized === "function") {
-        window.AndroidTts.speakLocalized(content, language, Number(state.settings.rate) || 0.85, repeat, requestId);
-      } else {
-        window.AndroidTts.speak(content, Number(state.settings.rate) || 0.85, repeat, requestId);
-      }
-    } catch {
-      handleError({ detail: { id: requestId } });
+      return;
     }
-    return;
-  }
-
-  const speakOnce = () => {
-    if (runId !== speechRunId) return;
-    const utterance = new SpeechSynthesisUtterance(content);
-    utterance.lang = language;
-    utterance.rate = Number(state.settings.rate) || 0.85;
-    utterance.pitch = 1;
-    utterance.volume = 1;
-    const voice = chooseVoice(language);
-    if (voice) utterance.voice = voice;
-    utterance.onend = () => {
+    const { text: part, language } = segments[step % segments.length];
+    // Chinese uses natural speed; the user's slower study rate applies to English/MP3.
+    const rate = language === "zh-CN" ? 1 : Number(settings.rate) || 0.85;
+    const done = () => {
       if (runId !== speechRunId) return;
-      completed += 1;
-      if (completed < repeat) {
-        window.setTimeout(speakOnce, 260);
-      } else {
+      step += 1;
+      if (step >= segments.length * repeat) {
         elements.speakButton.classList.remove("speaking");
         onDone?.();
+      } else {
+        window.setTimeout(next, step % segments.length === 0 ? 400 : 60);
       }
     };
+    if (hasNativeTts) {
+      const requestId = `native-${runId}-${step}-${Date.now()}`;
+      const cleanup = () => {
+        window.removeEventListener("native-tts-done", handleDone);
+        window.removeEventListener("native-tts-error", handleError);
+        if (nativeTtsCleanup === cleanup) nativeTtsCleanup = null;
+      };
+      const handleDone = (event) => {
+        if (event.detail?.id !== requestId) return;
+        cleanup();
+        done();
+      };
+      const handleError = (event) => {
+        if (event.detail?.id !== requestId) return;
+        cleanup();
+        fail();
+      };
+      window.addEventListener("native-tts-done", handleDone);
+      window.addEventListener("native-tts-error", handleError);
+      nativeTtsCleanup = cleanup;
+      try {
+        if (typeof window.AndroidTts.speakWithVoice === "function") {
+          const voiceId = language === "zh-CN" ? settings.chineseVoiceURI : settings.voiceURI;
+          window.AndroidTts.speakWithVoice(part, language, rate, 1, requestId, voiceId || "");
+        } else if (typeof window.AndroidTts.speakLocalized === "function") {
+          window.AndroidTts.speakLocalized(part, language, rate, 1, requestId);
+        } else {
+          window.AndroidTts.speak(part, rate, 1, requestId);
+        }
+      } catch {
+        handleError({ detail: { id: requestId } });
+      }
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(part);
+    utterance.lang = language;
+    utterance.rate = rate;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+    const voice = chooseVoice(language, settings);
+    if (voice) utterance.voice = voice;
+    utterance.onend = done;
     utterance.onerror = (event) => {
       if (event.error === "interrupted" || event.error === "canceled") return;
-      elements.speakButton.classList.remove("speaking");
-      showToast("朗读没有成功，请检查设备的语音设置。", 3200);
+      fail();
     };
     speechSynthesis.speak(utterance);
   };
-
-  speakOnce();
+  next();
 }
 
 async function playStoredAudio(storageKey, options = {}) {
@@ -975,17 +1003,32 @@ function toggleContinuousPlay() {
 }
 
 function populateVoices() {
-  if (!("speechSynthesis" in window)) return;
-  const voices = speechSynthesis.getVoices().filter((voice) => /^en[-_]/i.test(voice.lang));
-  const current = elements.voiceSelect.value || state.settings.voiceURI;
-  elements.voiceSelect.innerHTML = '<option value="">系统推荐英语声音</option>' + voices
-    .map((voice) => `<option value="${escapeHtml(voice.voiceURI)}">${escapeHtml(voice.name)}（${escapeHtml(voice.lang)}）</option>`)
-    .join("");
-  elements.voiceSelect.value = voices.some((voice) => voice.voiceURI === current) ? current : "";
+  for (const language of ["zh-CN", "en-US"]) {
+    const chinese = language === "zh-CN";
+    const select = chinese ? elements.chineseVoiceSelect : elements.voiceSelect;
+    const current = elements.settingsDialog.open ? select.value
+      : chinese ? state.settings.chineseVoiceURI : state.settings.voiceURI;
+    let voices = [];
+    const native = typeof window.AndroidTts?.getVoices === "function";
+    try {
+      voices = native ? JSON.parse(window.AndroidTts.getVoices(language))
+        : "speechSynthesis" in window ? speechSynthesis.getVoices().map((voice) => ({
+          id: voice.voiceURI, name: voice.name, lang: voice.lang, local: voice.localService,
+        })) : [];
+    } catch { voices = []; }
+    voices = voices.filter((voice) => chinese ? isMandarinVoice(voice) : /^en[-_]/i.test(voice.lang));
+    select.innerHTML = `<option value="">${chinese ? "推荐普通话声音" : "推荐英语声音"}</option>` + voices
+      .map((voice, index) => `<option value="${escapeHtml(voice.id)}">${escapeHtml(native
+        ? `${chinese ? "普通话" : "英语"}声音 ${index + 1} · ${voice.local ? "离线" : "需联网"}${voice.quality >= 400 ? " · 高音质" : ""}`
+        : `${voice.name}（${voice.local ? "离线" : "需联网"}）`)}</option>`).join("");
+    select.value = voices.some((voice) => voice.id === current) ? current : "";
+  }
 }
 
 function openImportDialog() {
   parsedImportItems = [];
+  importPreviewSignature = "";
+  elements.saveAssignmentButton.textContent = "下一步：核对内容";
   importFileFormat = "auto";
   selectedPhotoFile = null;
   if (photoObjectUrl) URL.revokeObjectURL(photoObjectUrl);
@@ -1021,8 +1064,21 @@ function getParseOptions() {
   };
 }
 
+function currentImportSignature() {
+  return JSON.stringify([elements.contentInput.value, getParseOptions()]);
+}
+
+function invalidateImportPreview() {
+  importPreviewSignature = "";
+  parsedImportItems = [];
+  elements.importPreview.hidden = true;
+  elements.importError.hidden = true;
+  elements.saveAssignmentButton.textContent = "下一步：核对内容";
+}
+
 function parseImportPreview() {
   elements.importError.hidden = true;
+  if (importPreviewSignature === currentImportSignature() && parsedImportItems.length) return parsedImportItems;
   try {
     parsedImportItems = deduplicateItems(parseImportedContent(elements.contentInput.value, getParseOptions()));
   } catch (error) {
@@ -1041,13 +1097,15 @@ function parseImportPreview() {
 
   const missingAnswers = parsedImportItems.filter((item) => !item.answer).length;
   elements.previewHeading.textContent = `识别到 ${parsedImportItems.length} 条${missingAnswers ? `，${missingAnswers} 条缺少英文` : ""}`;
-  elements.previewList.innerHTML = parsedImportItems.slice(0, 40).map((item, index) => `
-    <div class="preview-row">
-      <span>${index + 1}</span>
-      <span>${escapeHtml(item.prompt || "（无中文提示）")}</span>
-      <span class="english">${escapeHtml(item.answer || "（请补充英文）")}</span>
-    </div>`).join("") + (parsedImportItems.length > 40 ? '<div class="preview-row"><span>…</span><span>其余内容已省略预览</span><span></span></div>' : "");
+  elements.previewList.innerHTML = parsedImportItems.map((item, index) => `
+    <div class="preview-row" data-preview-index="${index}">
+      <span class="preview-number">${index + 1}</span>
+      <label class="field"><span>【中文】提示（可选）</span><textarea rows="2" data-preview-field="prompt" placeholder="不填也可以">${escapeHtml(item.prompt)}</textarea></label>
+      <label class="field"><span>【英文】要背的内容</span><textarea class="english" rows="2" data-preview-field="answer" placeholder="请补充英文">${escapeHtml(item.answer)}</textarea></label>
+    </div>`).join("");
   elements.importPreview.hidden = false;
+  importPreviewSignature = currentImportSignature();
+  elements.saveAssignmentButton.textContent = "确认保存并开始背诵";
   return parsedImportItems;
 }
 
@@ -1139,8 +1197,21 @@ async function saveImportedAssignment(event) {
     elements.assignmentTitleInput.focus();
     return;
   }
+  const previewWasCurrent = importPreviewSignature === currentImportSignature() && parsedImportItems.length > 0;
   const items = parseImportPreview();
   if (!items.length) return;
+  if (!previewWasCurrent) {
+    elements.importPreview.scrollIntoView({ behavior: "smooth", block: "center" });
+    showToast("请核对下方中英文，可直接修改；确认后再保存。", 3200);
+    return;
+  }
+  const missingIndex = items.findIndex((item) => !item.answer.trim());
+  if (missingIndex >= 0) {
+    elements.importError.textContent = `第 ${missingIndex + 1} 条缺少英文，请在预览中补充后保存。`;
+    elements.importError.hidden = false;
+    elements.previewList.querySelector(`[data-preview-index="${missingIndex}"] [data-preview-field="answer"]`)?.focus();
+    return;
+  }
   const audioFile = elements.assignmentAudioInput.files[0];
   const audioError = validateMp3File(audioFile);
   if (audioError) {
@@ -1169,11 +1240,11 @@ async function saveImportedAssignment(event) {
       elements.importError.textContent = error.message || "MP3 保存失败，请重试。";
       elements.importError.hidden = false;
       saveButton.disabled = false;
-      saveButton.textContent = "保存并开始背诵";
+      saveButton.textContent = "确认保存并开始背诵";
       return;
     }
     saveButton.disabled = false;
-    saveButton.textContent = "保存并开始背诵";
+    saveButton.textContent = "确认保存并开始背诵";
   }
   state.assignments.unshift(assignment);
   state.activeAssignmentId = assignment.id;
@@ -1187,6 +1258,7 @@ async function saveImportedAssignment(event) {
 }
 
 function openEditItemDialog() {
+  stopSpeechAndContinuous();
   const item = getCurrentItem();
   if (!item) return;
   elements.editPromptInput.value = item.prompt;
@@ -1498,9 +1570,9 @@ function handleAssignmentAction(action, id) {
 }
 
 function openSettings() {
+  stopSpeechAndContinuous();
   populateVoices();
   updateTtsStatus();
-  elements.voiceSelect.value = state.settings.voiceURI || "";
   elements.rateSelect.value = String(state.settings.rate);
   elements.repeatSelect.value = String(state.settings.repeat);
   elements.autoSpeakInput.checked = Boolean(state.settings.autoSpeak);
@@ -1509,7 +1581,9 @@ function openSettings() {
 
 function saveSettings(event) {
   event.preventDefault();
+  stopSpeechAndContinuous();
   state.settings.voiceURI = elements.voiceSelect.value;
+  state.settings.chineseVoiceURI = elements.chineseVoiceSelect.value;
   state.settings.rate = Number(elements.rateSelect.value);
   state.settings.repeat = Number(elements.repeatSelect.value);
   state.settings.autoSpeak = elements.autoSpeakInput.checked;
@@ -1596,7 +1670,15 @@ function bindEvents() {
   elements.focusStudyButton.addEventListener("click", () => startStudy("focus"));
   elements.loadDemoButton.addEventListener("click", addDemoAssignment);
   elements.answerPanel.addEventListener("click", revealAnswer);
-  elements.speakButton.addEventListener("click", () => speakCurrent());
+  elements.speakButton.addEventListener("click", () => {
+    if (elements.speakButton.classList.contains("speaking")) stopSpeechAndContinuous();
+    else speakCurrent();
+  });
+  elements.speakPromptButton.addEventListener("click", () => {
+    const item = getCurrentItem();
+    stopSpeechAndContinuous();
+    if (item?.prompt) speakText(item.prompt, undefined, { repeat: 1 });
+  });
   elements.previousItemButton.addEventListener("click", () => moveItem(-1));
   elements.nextItemButton.addEventListener("click", () => moveItem(1));
   elements.continuousPlayButton.addEventListener("click", toggleContinuousPlay);
@@ -1619,9 +1701,33 @@ function bindEvents() {
   elements.photoFileInput.addEventListener("change", () => handlePhotoSelection(elements.photoFileInput.files[0]));
   elements.ocrButton.addEventListener("click", recognizePhoto);
   elements.previewImportButton.addEventListener("click", parseImportPreview);
+  elements.contentInput.addEventListener("input", invalidateImportPreview);
+  elements.paragraphSplitInput.addEventListener("change", invalidateImportPreview);
+  elements.insertExampleButton.addEventListener("click", () => {
+    const example = "【中文】名称｜【英文】name\n【中文】我对科学感兴趣｜【英文】I am interested in science.\n【中文】为上课做好准备｜【英文】get ready for class";
+    const existing = elements.contentInput.value.trim();
+    if (existing) {
+      showToast("输入框已有内容；上方可查看示例，清空输入框后可填入。", 3500);
+      return;
+    }
+    elements.contentInput.value = example;
+    importFileFormat = "auto";
+    invalidateImportPreview();
+    elements.contentInput.focus();
+    showToast("示例已填入，可直接修改");
+  });
+  elements.previewList.addEventListener("input", (event) => {
+    const field = event.target.dataset.previewField;
+    const index = Number(event.target.closest("[data-preview-index]")?.dataset.previewIndex);
+    if (!["prompt", "answer"].includes(field) || !parsedImportItems[index]) return;
+    parsedImportItems[index][field] = event.target.value;
+    const missing = parsedImportItems.filter((item) => !item.answer.trim()).length;
+    elements.previewHeading.textContent = `核对 ${parsedImportItems.length} 条${missing ? `，${missing} 条缺少英文` : ""}`;
+  });
   elements.importForm.addEventListener("submit", saveImportedAssignment);
   elements.assignmentTypeInput.addEventListener("change", () => {
     if (elements.assignmentTypeInput.value === "text") elements.paragraphSplitInput.checked = true;
+    invalidateImportPreview();
   });
 
   elements.editItemForm.addEventListener("submit", saveEditedItem);
@@ -1680,14 +1786,16 @@ function bindEvents() {
   elements.settingsButton.addEventListener("click", openSettings);
   elements.settingsForm.addEventListener("submit", saveSettings);
   elements.testSpeechButton.addEventListener("click", () => {
-    speakText("名词", () => window.setTimeout(() => {
-      speakText("This is a test of English reading.", () => {
-        updateTtsStatus();
-        showToast("中英文测试朗读完成");
-      });
-    }, 220));
+    speakText("名称。名词。今天我们一起学习英语。I am interested in science.", () => {
+      updateTtsStatus();
+      showToast("试听完成，满意后点击保存设置");
+    }, { repeat: 1, rate: Number(elements.rateSelect.value),
+      voiceURI: elements.voiceSelect.value, chineseVoiceURI: elements.chineseVoiceSelect.value });
   });
+  window.addEventListener("native-tts-ready", () => { populateVoices(); updateTtsStatus(); });
+  elements.settingsDialog.addEventListener("close", stopSpeechAndContinuous);
   elements.ttsSettingsButton.addEventListener("click", () => {
+    stopSpeechAndContinuous();
     try {
       window.AndroidTts?.openSettings?.();
     } catch {
