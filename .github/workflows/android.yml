@@ -43,8 +43,10 @@ jobs:
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
-          "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print "$APK" | grep -q "android.intent.action.TTS_SERVICE"
-          unzip -l "$APK" | grep -q "assets/www/audio-store.js"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print "$APK" > /tmp/english-recite-manifest.xml
+          grep -F "android.intent.action.TTS_SERVICE" /tmp/english-recite-manifest.xml
+          unzip -l "$APK" > /tmp/english-recite-apk-files.txt
+          grep -F "assets/www/audio-store.js" /tmp/english-recite-apk-files.txt
 
       - name: Prepare download file
         run: |
