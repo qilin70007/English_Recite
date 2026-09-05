@@ -46,6 +46,7 @@ def syncWebAssets = tasks.register("syncWebAssets", Sync) {
         include "index.html"
         include "styles.css"
         include "core.js"
+        include "audio-store.js"
         include "app.js"
         include "sw.js"
         include "manifest.webmanifest"
