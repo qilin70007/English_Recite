@@ -561,6 +561,13 @@ function chooseVoice() {
 
 function stopSpeech() {
   speechRunId += 1;
+  if (window.AndroidTts?.stop) {
+    try {
+      window.AndroidTts.stop();
+    } catch {
+      // Fall through so the browser speech engine is stopped as well.
+    }
+  }
   if ("speechSynthesis" in window) speechSynthesis.cancel();
   elements.speakButton.classList.remove("speaking");
 }
@@ -572,7 +579,8 @@ function stopSpeechAndContinuous() {
 }
 
 function speakText(text, onDone) {
-  if (!("speechSynthesis" in window)) {
+  const hasNativeTts = Boolean(window.AndroidTts?.speak);
+  if (!hasNativeTts && !("speechSynthesis" in window)) {
     showToast("当前浏览器不支持自动朗读，请换用 Chrome、Edge 或 Safari。", 3500);
     return;
   }
@@ -587,6 +595,34 @@ function speakText(text, onDone) {
   const repeat = Math.max(1, Math.min(3, Number(state.settings.repeat) || 1));
   let completed = 0;
   elements.speakButton.classList.add("speaking");
+
+  if (hasNativeTts) {
+    const requestId = `native-${runId}-${Date.now()}`;
+    const handleDone = (event) => {
+      if (event.detail?.id !== requestId) return;
+      window.removeEventListener("native-tts-done", handleDone);
+      window.removeEventListener("native-tts-error", handleError);
+      if (runId !== speechRunId) return;
+      elements.speakButton.classList.remove("speaking");
+      onDone?.();
+    };
+    const handleError = (event) => {
+      if (event.detail?.id !== requestId) return;
+      window.removeEventListener("native-tts-done", handleDone);
+      window.removeEventListener("native-tts-error", handleError);
+      if (runId !== speechRunId) return;
+      elements.speakButton.classList.remove("speaking");
+      showToast("朗读没有成功，请检查手机的文字转语音设置。", 3200);
+    };
+    window.addEventListener("native-tts-done", handleDone);
+    window.addEventListener("native-tts-error", handleError);
+    try {
+      window.AndroidTts.speak(content, Number(state.settings.rate) || 0.85, repeat, requestId);
+    } catch {
+      handleError({ detail: { id: requestId } });
+    }
+    return;
+  }
 
   const speakOnce = () => {
     if (runId !== speechRunId) return;
@@ -895,11 +931,21 @@ function deleteCurrentItem() {
 }
 
 function downloadJson(data, filename) {
+  const safeFilename = filename.replace(/[\\/:*?"<>|]/g, "-");
+  if (window.AndroidFiles?.saveJson) {
+    try {
+      window.AndroidFiles.saveJson(safeFilename, JSON.stringify(data, null, 2));
+      return;
+    } catch {
+      showToast("无法打开保存位置，请稍后重试。", 3200);
+      return;
+    }
+  }
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = filename.replace(/[\\/:*?"<>|]/g, "-");
+  link.download = safeFilename;
   document.body.append(link);
   link.click();
   link.remove();

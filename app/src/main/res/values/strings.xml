@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">英语背诵助手</string>
+    <string name="file_saved">备份文件已保存</string>
+    <string name="file_save_failed">备份文件保存失败</string>
+    <string name="no_file_picker">未找到可用的文件选择器</string>
+</resources>
