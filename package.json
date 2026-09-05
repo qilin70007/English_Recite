@@ -1,0 +1,14 @@
+{
+  "name": "english-recite",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "面向中学生的英语背诵辅助 PWA",
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check app.js && node --check core.js && node --check sw.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

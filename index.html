@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#315e55" />
+    <meta name="description" content="上传每天的英语背诵作业，用三档状态和自动朗读更高效地掌握单词、短语、句子与课文。" />
+    <title>英语背诵助手</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#mainContent">跳到主要内容</a>
+
+    <div class="app-shell">
+      <header class="topbar">
+        <button class="brand" type="button" data-view-target="home" aria-label="返回首页">
+          <span class="brand-mark" aria-hidden="true">Aa</span>
+          <span>
+            <strong>英语背诵助手</strong>
+            <small>每天背一点，记得更牢</small>
+          </span>
+        </button>
+        <div class="top-actions">
+          <span class="save-indicator" id="saveIndicator" aria-live="polite">已保存在本机</span>
+          <button class="button button-quiet install-button" id="installButton" type="button" hidden>安装到手机</button>
+          <button class="icon-button" id="settingsButton" type="button" aria-label="朗读与数据设置" title="设置">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.37a1.7 1.7 0 0 0-1 .64 1.7 1.7 0 0 0-.37 1.08V21h-4v-.09a1.7 1.7 0 0 0-1.08-1.58 1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.18 15a1.7 1.7 0 0 0-.64-1A1.7 1.7 0 0 0 2.46 13H2V9h.46a1.7 1.7 0 0 0 1.58-1.08A1.7 1.7 0 0 0 3.7 6.04l-.06-.06 2.83-2.83.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1-.64A1.7 1.7 0 0 0 9.78 2h4a1.7 1.7 0 0 0 .37 1.08 1.7 1.7 0 0 0 1 .64 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 .64 1 1.7 1.7 0 0 0 1.08.37H22v4h-.76A1.7 1.7 0 0 0 19.4 15Z"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="main-layout">
+        <aside class="sidebar" aria-label="主导航">
+          <nav class="side-nav">
+            <button class="nav-item active" type="button" data-view-target="home">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9Z"/></svg>
+              <span>今日背诵</span>
+            </button>
+            <button class="nav-item" type="button" data-view-target="library">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h6v16H4zM14 4h6v16h-6z"/></svg>
+              <span>作业本</span>
+              <span class="nav-count" id="assignmentCount">0</span>
+            </button>
+          </nav>
+
+          <section class="side-summary" aria-labelledby="sideSummaryTitle">
+            <div class="section-heading compact">
+              <h2 id="sideSummaryTitle">当前作业</h2>
+              <button class="text-button" type="button" data-action="import">＋ 新建</button>
+            </div>
+            <div id="sideAssignmentList" class="side-assignment-list"></div>
+          </section>
+
+          <div class="sidebar-tip">
+            <span aria-hidden="true">💡</span>
+            <p><strong>先回忆，再看答案</strong><br />想不起来也没关系，标记后重点再背。</p>
+          </div>
+        </aside>
+
+        <main id="mainContent" class="workspace" tabindex="-1">
+          <section class="view" id="homeView" data-view="home">
+            <div class="welcome-row">
+              <div>
+                <p class="eyebrow" id="todayLabel"></p>
+                <h1 id="welcomeTitle">今天的英语，开始背吧</h1>
+                <p class="muted">一轮只做一件事：回忆、判断、继续。</p>
+              </div>
+              <button class="button button-primary" type="button" data-action="import">
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M5 20h14"/></svg>
+                上传背诵作业
+              </button>
+            </div>
+
+            <div id="emptyState" class="empty-state" hidden>
+              <div class="empty-illustration" aria-hidden="true">
+                <span class="book-page">Hello!</span>
+                <span class="sound-wave">)))</span>
+              </div>
+              <h2>先添加今天的背诵内容</h2>
+              <p>可粘贴文字，上传 TXT、CSV、JSON，或拍照识别教材与作业纸。</p>
+              <div class="empty-actions">
+                <button class="button button-primary" type="button" data-action="import">添加背诵内容</button>
+                <button class="button button-secondary" id="loadDemoButton" type="button">看看图片中的示例</button>
+              </div>
+            </div>
+
+            <div id="dashboardContent">
+              <article class="hero-card">
+                <div class="hero-copy">
+                  <span class="type-chip" id="activeTypeChip">句子</span>
+                  <h2 id="activeAssignmentTitle">今日英语背诵</h2>
+                  <p id="activeAssignmentMeta" class="muted">共 0 项</p>
+                  <div class="hero-actions">
+                    <button class="button button-accent" id="startStudyButton" type="button">
+                      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 6 9 6-9 6V6Z"/></svg>
+                      开始背诵
+                    </button>
+                    <button class="button button-light" id="focusStudyButton" type="button">重点复习</button>
+                  </div>
+                </div>
+                <div class="progress-ring" id="progressRing" style="--progress: 0" role="img" aria-label="掌握进度 0%">
+                  <div>
+                    <strong id="masteryPercent">0%</strong>
+                    <span>已掌握</span>
+                  </div>
+                </div>
+              </article>
+
+              <div class="stats-grid" aria-label="背诵统计">
+                <article class="stat-card status-mastered">
+                  <span class="stat-icon" aria-hidden="true">✓</span>
+                  <div><strong id="masteredCount">0</strong><span>已掌握</span></div>
+                </article>
+                <article class="stat-card status-fuzzy">
+                  <span class="stat-icon" aria-hidden="true">≈</span>
+                  <div><strong id="fuzzyCount">0</strong><span>模糊</span></div>
+                </article>
+                <article class="stat-card status-unknown">
+                  <span class="stat-icon" aria-hidden="true">?</span>
+                  <div><strong id="unknownCount">0</strong><span>不认识</span></div>
+                </article>
+                <article class="stat-card status-today">
+                  <span class="stat-icon" aria-hidden="true">★</span>
+                  <div><strong id="todayReviewedCount">0</strong><span>今日已背</span></div>
+                </article>
+              </div>
+
+              <section class="learning-guide" aria-labelledby="guideTitle">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">推荐流程</p>
+                    <h2 id="guideTitle">一轮背诵，只需三步</h2>
+                  </div>
+                </div>
+                <ol class="guide-steps">
+                  <li><span>1</span><div><strong>先看提示回忆</strong><p>不要急着翻答案，给大脑几秒检索时间。</p></div></li>
+                  <li><span>2</span><div><strong>点开答案并跟读</strong><p>听标准发音，短语和句子按意群朗读。</p></div></li>
+                  <li><span>3</span><div><strong>如实标记状态</strong><p>“模糊”和“不认识”会自动排到重点复习前面。</p></div></li>
+                </ol>
+              </section>
+            </div>
+          </section>
+
+          <section class="view study-view" id="studyView" data-view="study" hidden>
+            <div class="study-toolbar">
+              <button class="button button-quiet" type="button" data-view-target="home">
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
+                退出本轮
+              </button>
+              <div class="study-title-block">
+                <strong id="studyAssignmentTitle">背诵</strong>
+                <span id="studyCounter">1 / 1</span>
+              </div>
+              <div class="study-tools">
+                <label class="select-label">
+                  <span class="sr-only">学习模式</span>
+                  <select id="studyModeSelect">
+                    <option value="recall">看提示背英文</option>
+                    <option value="follow">跟读模式</option>
+                  </select>
+                </label>
+                <button class="icon-button" id="editItemButton" type="button" aria-label="编辑当前内容" title="编辑当前内容">
+                  <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4ZM13.5 6.5l4 4"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="study-progress" aria-hidden="true"><span id="studyProgressBar"></span></div>
+
+            <div class="study-stage">
+              <article class="recite-card" id="reciteCard">
+                <div class="card-meta">
+                  <span class="status-pill status-new" id="currentStatusPill">未标记</span>
+                  <button class="sound-button" id="speakButton" type="button" aria-label="朗读当前英文">
+                    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6L8 10H4Zm12-1a4 4 0 0 1 0 6m2-9a8 8 0 0 1 0 12"/></svg>
+                    <span>朗读</span>
+                  </button>
+                </div>
+
+                <div class="prompt-area">
+                  <span class="card-label" id="promptLabel">中文提示</span>
+                  <h2 id="promptText">准备开始</h2>
+                  <p class="think-hint" id="thinkHint">先在心里或大声说出英文，再点开答案</p>
+                </div>
+
+                <button class="answer-panel concealed" id="answerPanel" type="button" aria-expanded="false">
+                  <span class="reveal-copy" id="revealCopy">
+                    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+                    点一下查看英文答案
+                  </span>
+                  <span class="answer-copy" id="answerText"></span>
+                </button>
+
+                <p class="card-note" id="itemNote" hidden></p>
+              </article>
+
+              <div class="self-check">
+                <p>这一次，你记得怎么样？</p>
+                <div class="status-actions">
+                  <button class="status-button unknown" type="button" data-status="unknown"><span>?</span><strong>不认识</strong><small>重点再背</small></button>
+                  <button class="status-button fuzzy" type="button" data-status="fuzzy"><span>≈</span><strong>模糊</strong><small>还需巩固</small></button>
+                  <button class="status-button mastered" type="button" data-status="mastered"><span>✓</span><strong>已掌握</strong><small>本轮通过</small></button>
+                </div>
+              </div>
+
+              <div class="study-navigation">
+                <button class="button button-secondary" id="previousItemButton" type="button">上一条</button>
+                <button class="button button-secondary continuous-button" id="continuousPlayButton" type="button">
+                  <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8 6 10 6-10 6V6Z"/></svg>
+                  连续朗读
+                </button>
+                <button class="button button-primary" id="nextItemButton" type="button">下一条</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="view" id="libraryView" data-view="library" hidden>
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow">我的内容</p>
+                <h1>背诵作业本</h1>
+                <p class="muted">每次作业单独保存，进度不会互相混在一起。</p>
+              </div>
+              <button class="button button-primary" type="button" data-action="import">＋ 添加作业</button>
+            </div>
+            <div class="library-list" id="libraryList"></div>
+          </section>
+        </main>
+      </div>
+
+      <nav class="mobile-nav" aria-label="手机端导航">
+        <button class="active" type="button" data-view-target="home"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9Z"/></svg><span>背诵</span></button>
+        <button class="mobile-add" type="button" data-action="import" aria-label="上传背诵作业"><span>＋</span></button>
+        <button type="button" data-view-target="library"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h6v16H4zM14 4h6v16h-6z"/></svg><span>作业本</span></button>
+      </nav>
+    </div>
+
+    <dialog class="modal import-modal" id="importDialog">
+      <form method="dialog" class="modal-card" id="importForm">
+        <div class="modal-header">
+          <div><p class="eyebrow">新建作业</p><h2>上传背诵内容</h2></div>
+          <button class="icon-button" type="button" data-close-dialog="importDialog" aria-label="关闭">×</button>
+        </div>
+
+        <div class="form-grid two-columns">
+          <label class="field"><span>作业名称</span><input id="assignmentTitleInput" name="title" maxlength="40" placeholder="如：9月5日英语背诵" required /></label>
+          <label class="field"><span>内容类型</span><select id="assignmentTypeInput" name="type"><option value="mixed">混合内容</option><option value="word">单词</option><option value="phrase">短语</option><option value="sentence">句子</option><option value="text">课文</option></select></label>
+        </div>
+
+        <div class="input-tabs" role="tablist" aria-label="导入方式">
+          <button class="active" type="button" role="tab" aria-selected="true" data-import-tab="paste">粘贴文字</button>
+          <button type="button" role="tab" aria-selected="false" data-import-tab="file">上传文件</button>
+          <button type="button" role="tab" aria-selected="false" data-import-tab="photo">拍照识别</button>
+        </div>
+
+        <section class="import-panel" data-import-panel="paste">
+          <p class="field-help">每行一条。中英文之间可用竖线“|”或 Tab；像图片中那样直接复制“中文 英文”也能自动识别。</p>
+        </section>
+
+        <section class="import-panel file-panel" data-import-panel="file" hidden>
+          <label class="drop-zone" for="contentFileInput">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 16V4m-5 5 5-5 5 5M4 20h16"/></svg>
+            <strong>选择 TXT、CSV、TSV 或 JSON 文件</strong>
+            <span id="selectedFileName">文件内容只在你的浏览器中处理</span>
+          </label>
+          <input class="sr-only" id="contentFileInput" type="file" accept=".txt,.csv,.tsv,.json,text/plain,text/csv,application/json" />
+        </section>
+
+        <section class="import-panel photo-panel" data-import-panel="photo" hidden>
+          <div class="photo-grid">
+            <label class="drop-zone photo-drop" for="photoFileInput">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h4l1.5-2h5L16 6h4v14H4V6Z"/><circle cx="12" cy="13" r="4"/></svg>
+              <strong>拍照或选择图片</strong>
+              <span>建议画面摆正、光线均匀、文字清晰</span>
+            </label>
+            <div class="photo-preview-wrap" id="photoPreviewWrap" hidden><img id="photoPreview" alt="待识别的背诵内容照片" /></div>
+          </div>
+          <input class="sr-only" id="photoFileInput" type="file" accept="image/*" capture="environment" />
+          <button class="button button-secondary ocr-button" id="ocrButton" type="button" disabled>开始识别图片文字</button>
+          <div class="ocr-progress" id="ocrProgress" hidden><span id="ocrProgressBar"></span><p id="ocrProgressText">正在准备识别…</p></div>
+          <p class="field-help">首次识别需联网下载识别组件。识别完成后请先校对文字，再保存作业。</p>
+        </section>
+
+        <label class="field content-field">
+          <span>背诵内容 <small>（可在保存前修改）</small></span>
+          <textarea id="contentInput" rows="9" placeholder="示例：&#10;我对科学感兴趣 | I am interested in science.&#10;我性格外向 | I am outgoing."></textarea>
+        </label>
+
+        <div class="import-options">
+          <label><input id="paragraphSplitInput" type="checkbox" /> 按空行分成课文段落</label>
+          <button class="text-button" id="previewImportButton" type="button">解析并预览</button>
+        </div>
+
+        <section class="import-preview" id="importPreview" hidden>
+          <div class="section-heading compact"><h3 id="previewHeading">识别到 0 条</h3><span class="muted">请抽查中英文是否对应</span></div>
+          <div class="preview-list" id="previewList"></div>
+        </section>
+
+        <p class="form-error" id="importError" role="alert" hidden></p>
+        <div class="modal-actions">
+          <button class="button button-quiet" type="button" data-close-dialog="importDialog">取消</button>
+          <button class="button button-primary" id="saveAssignmentButton" type="submit">保存并开始背诵</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="editItemDialog">
+      <form method="dialog" class="modal-card small" id="editItemForm">
+        <div class="modal-header"><h2>修改当前内容</h2><button class="icon-button" type="button" data-close-dialog="editItemDialog" aria-label="关闭">×</button></div>
+        <label class="field"><span>中文提示（可选）</span><textarea id="editPromptInput" rows="3"></textarea></label>
+        <label class="field"><span>英文背诵内容</span><textarea id="editAnswerInput" rows="5" required></textarea></label>
+        <label class="field"><span>备注（可选）</span><input id="editNoteInput" /></label>
+        <div class="modal-actions"><button class="button button-quiet danger-text" id="deleteItemButton" type="button">删除这一条</button><span class="spacer"></span><button class="button button-quiet" type="button" data-close-dialog="editItemDialog">取消</button><button class="button button-primary" type="submit">保存修改</button></div>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="settingsDialog">
+      <form method="dialog" class="modal-card small" id="settingsForm">
+        <div class="modal-header"><div><p class="eyebrow">偏好设置</p><h2>朗读与数据</h2></div><button class="icon-button" type="button" data-close-dialog="settingsDialog" aria-label="关闭">×</button></div>
+        <label class="field"><span>英语发音</span><select id="voiceSelect"><option value="">系统推荐英语声音</option></select></label>
+        <div class="form-grid two-columns">
+          <label class="field"><span>朗读速度</span><select id="rateSelect"><option value="0.7">较慢 0.7×</option><option value="0.85">慢速 0.85×</option><option value="1">正常 1.0×</option><option value="1.15">稍快 1.15×</option></select></label>
+          <label class="field"><span>每条朗读</span><select id="repeatSelect"><option value="1">1 遍</option><option value="2">2 遍</option><option value="3">3 遍</option></select></label>
+        </div>
+        <label class="toggle-row"><span><strong>翻开答案后自动朗读</strong><small>帮助孩子及时校正发音</small></span><input id="autoSpeakInput" type="checkbox" role="switch" /></label>
+        <hr />
+        <div class="data-actions">
+          <button class="button button-secondary" id="exportBackupButton" type="button">导出全部数据</button>
+          <label class="button button-secondary" for="backupFileInput">恢复备份</label>
+          <input class="sr-only" id="backupFileInput" type="file" accept="application/json,.json" />
+        </div>
+        <p class="field-help">进度默认保存在当前浏览器。换手机前请先导出备份。</p>
+        <div class="modal-actions"><button class="button button-primary" type="submit">保存设置</button></div>
+      </form>
+    </dialog>
+
+    <dialog class="modal completion-modal" id="completionDialog">
+      <div class="modal-card small completion-card">
+        <div class="completion-icon" aria-hidden="true">✓</div>
+        <p class="eyebrow">本轮完成</p>
+        <h2>这一轮背完啦！</h2>
+        <p id="completionSummary" class="muted"></p>
+        <div class="modal-actions centered"><button class="button button-secondary" id="reviewAgainButton" type="button">再背重点内容</button><button class="button button-primary" type="button" data-close-completion>回到首页</button></div>
+      </div>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

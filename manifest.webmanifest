@@ -1,0 +1,21 @@
+{
+  "name": "英语背诵助手",
+  "short_name": "英语背诵",
+  "description": "上传英语背诵作业，管理掌握状态并自动朗读。",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f7f3",
+  "theme_color": "#315e55",
+  "orientation": "any",
+  "categories": ["education", "productivity"],
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
