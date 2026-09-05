@@ -196,6 +196,7 @@ let toastTimer = null;
 let saveTimer = null;
 let speechRunId = 0;
 let continuousPlaying = false;
+let nativeTtsCleanup = null;
 let deferredInstallPrompt = null;
 
 function escapeHtml(value = "") {
@@ -561,6 +562,8 @@ function chooseVoice() {
 
 function stopSpeech() {
   speechRunId += 1;
+  nativeTtsCleanup?.();
+  nativeTtsCleanup = null;
   if (window.AndroidTts?.stop) {
     try {
       window.AndroidTts.stop();
@@ -598,24 +601,28 @@ function speakText(text, onDone) {
 
   if (hasNativeTts) {
     const requestId = `native-${runId}-${Date.now()}`;
-    const handleDone = (event) => {
-      if (event.detail?.id !== requestId) return;
+    const cleanupNativeListeners = () => {
       window.removeEventListener("native-tts-done", handleDone);
       window.removeEventListener("native-tts-error", handleError);
+      if (nativeTtsCleanup === cleanupNativeListeners) nativeTtsCleanup = null;
+    };
+    const handleDone = (event) => {
+      if (event.detail?.id !== requestId) return;
+      cleanupNativeListeners();
       if (runId !== speechRunId) return;
       elements.speakButton.classList.remove("speaking");
       onDone?.();
     };
     const handleError = (event) => {
       if (event.detail?.id !== requestId) return;
-      window.removeEventListener("native-tts-done", handleDone);
-      window.removeEventListener("native-tts-error", handleError);
+      cleanupNativeListeners();
       if (runId !== speechRunId) return;
       elements.speakButton.classList.remove("speaking");
       showToast("朗读没有成功，请检查手机的文字转语音设置。", 3200);
     };
     window.addEventListener("native-tts-done", handleDone);
     window.addEventListener("native-tts-error", handleError);
+    nativeTtsCleanup = cleanupNativeListeners;
     try {
       window.AndroidTts.speak(content, Number(state.settings.rate) || 0.85, repeat, requestId);
     } catch {
