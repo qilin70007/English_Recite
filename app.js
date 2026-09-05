@@ -1,12 +1,14 @@
 import {
   STATUS,
   buildCue,
+  buildStudyEntries,
   deduplicateItems,
+  detectSpeechLanguage,
   parseImportedContent,
   reviewedToday,
-  sortForReview,
   summarize,
 } from "./core.js";
+import { deleteAudio, deleteAudios, getAudio, saveAudio } from "./audio-store.js";
 
 const STORAGE_KEY = "englishRecite.state.v1";
 const OCR_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
@@ -68,9 +70,13 @@ const elements = {
   loadDemoButton: $("#loadDemoButton"),
   studyAssignmentTitle: $("#studyAssignmentTitle"),
   studyCounter: $("#studyCounter"),
+  studyScopeSelect: $("#studyScopeSelect"),
+  studyStatusFilter: $("#studyStatusFilter"),
+  applyStudyFilterButton: $("#applyStudyFilterButton"),
   studyModeSelect: $("#studyModeSelect"),
   studyProgressBar: $("#studyProgressBar"),
   currentStatusPill: $("#currentStatusPill"),
+  audioSourceBadge: $("#audioSourceBadge"),
   promptLabel: $("#promptLabel"),
   promptText: $("#promptText"),
   thinkHint: $("#thinkHint"),
@@ -89,6 +95,7 @@ const elements = {
   contentInput: $("#contentInput"),
   paragraphSplitInput: $("#paragraphSplitInput"),
   contentFileInput: $("#contentFileInput"),
+  assignmentAudioInput: $("#assignmentAudioInput"),
   selectedFileName: $("#selectedFileName"),
   photoFileInput: $("#photoFileInput"),
   photoPreviewWrap: $("#photoPreviewWrap"),
@@ -107,7 +114,20 @@ const elements = {
   editPromptInput: $("#editPromptInput"),
   editAnswerInput: $("#editAnswerInput"),
   editNoteInput: $("#editNoteInput"),
+  editAudioInput: $("#editAudioInput"),
+  editAudioName: $("#editAudioName"),
+  removeEditAudioButton: $("#removeEditAudioButton"),
   deleteItemButton: $("#deleteItemButton"),
+  editAssignmentDialog: $("#editAssignmentDialog"),
+  editAssignmentForm: $("#editAssignmentForm"),
+  editAssignmentTitleInput: $("#editAssignmentTitleInput"),
+  editAssignmentTypeInput: $("#editAssignmentTypeInput"),
+  editAssignmentAudioInput: $("#editAssignmentAudioInput"),
+  editAssignmentAudioName: $("#editAssignmentAudioName"),
+  removeAssignmentAudioButton: $("#removeAssignmentAudioButton"),
+  addBulkItemButton: $("#addBulkItemButton"),
+  bulkEditList: $("#bulkEditList"),
+  saveAssignmentEditButton: $("#saveAssignmentEditButton"),
   settingsButton: $("#settingsButton"),
   settingsDialog: $("#settingsDialog"),
   settingsForm: $("#settingsForm"),
@@ -134,7 +154,7 @@ function createId(prefix = "id") {
 
 function defaultState() {
   return {
-    version: 1,
+    version: 2,
     activeAssignmentId: null,
     assignments: [],
     settings: {
@@ -155,6 +175,17 @@ function normalizeItem(item) {
     status: Object.values(STATUS).includes(item.status) ? item.status : STATUS.NEW,
     reviewCount: Number(item.reviewCount) || 0,
     lastReviewed: item.lastReviewed || null,
+    audio: normalizeAudioMetadata(item.audio),
+  };
+}
+
+function normalizeAudioMetadata(audio) {
+  if (!audio || !audio.name) return null;
+  return {
+    name: String(audio.name),
+    type: String(audio.type || "audio/mpeg"),
+    size: Number(audio.size) || 0,
+    updatedAt: audio.updatedAt || null,
   };
 }
 
@@ -165,6 +196,7 @@ function normalizeAssignment(assignment) {
     type: TYPE_LABELS[assignment.type] ? assignment.type : "mixed",
     createdAt: assignment.createdAt || new Date().toISOString(),
     updatedAt: assignment.updatedAt || assignment.createdAt || new Date().toISOString(),
+    audio: normalizeAudioMetadata(assignment.audio),
     items: Array.isArray(assignment.items) ? assignment.items.map(normalizeItem) : [],
   };
 }
@@ -179,6 +211,7 @@ function loadState() {
     return {
       ...base,
       ...saved,
+      version: 2,
       assignments,
       activeAssignmentId: activeExists ? saved.activeAssignmentId : assignments[0]?.id || null,
       settings: { ...base.settings, ...(saved.settings || {}) },
@@ -200,6 +233,12 @@ let saveTimer = null;
 let speechRunId = 0;
 let continuousPlaying = false;
 let nativeTtsCleanup = null;
+let activeAudio = null;
+let activeAudioUrl = "";
+let editAudioRemoveRequested = false;
+let bulkEditAssignmentId = null;
+let bulkDraftItems = [];
+let bulkAssignmentAudioRemoveRequested = false;
 let deferredInstallPrompt = null;
 
 function escapeHtml(value = "") {
@@ -219,6 +258,38 @@ function formatDate(iso) {
 function getDefaultTitle() {
   const now = new Date();
   return `${now.getMonth() + 1}月${now.getDate()}日英语背诵`;
+}
+
+const MAX_AUDIO_SIZE = 40 * 1024 * 1024;
+
+function itemAudioKey(itemId) {
+  return `item:${itemId}`;
+}
+
+function assignmentAudioKey(assignmentId) {
+  return `assignment:${assignmentId}`;
+}
+
+function formatFileSize(size = 0) {
+  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(size / 1024))} KB`;
+}
+
+function validateMp3File(file) {
+  if (!file) return "";
+  const isMp3 = /\.mp3$/i.test(file.name) || file.type === "audio/mpeg" || file.type === "audio/mp3";
+  if (!isMp3) return "请选择 MP3 格式的音频文件。";
+  if (file.size > MAX_AUDIO_SIZE) return "单个 MP3 请不要超过 40 MB。";
+  return "";
+}
+
+async function storeMp3(key, file) {
+  const error = validateMp3File(file);
+  if (error) throw new Error(error);
+  const metadata = await saveAudio(key, file);
+  const persistenceRequest = navigator.storage?.persist?.();
+  persistenceRequest?.catch(() => {});
+  return metadata;
 }
 
 function showToast(message, duration = 2200) {
@@ -332,9 +403,11 @@ function renderLibrary() {
   }
 
   elements.libraryList.innerHTML = state.assignments
-    .map((assignment) => {
+    .map((assignment, assignmentIndex) => {
       const summary = summarize(assignment.items);
       const focusCount = summary.unknown + summary.fuzzy;
+      const itemAudioCount = assignment.items.filter((item) => item.audio).length;
+      const audioCount = itemAudioCount + (assignment.audio ? 1 : 0);
       return `
         <article class="library-card" data-assignment-card="${escapeHtml(assignment.id)}">
           <div class="library-card-main">
@@ -347,12 +420,16 @@ function renderLibrary() {
               <span>共 ${summary.total} 项</span>
               <span>${summary.mastered} 项已掌握</span>
               <span>${focusCount} 项待重点复习</span>
+              ${audioCount ? `<span>已配 ${audioCount} 个 MP3</span>` : ""}
             </div>
             <div class="mini-progress" aria-label="已掌握 ${summary.mastery}%"><span style="width:${summary.mastery}%"></span></div>
           </div>
           <div class="library-card-actions">
             <button class="button button-secondary" type="button" data-assignment-action="focus" data-assignment-id="${escapeHtml(assignment.id)}" ${focusCount ? "" : "disabled"}>重点复习</button>
             <button class="button button-primary" type="button" data-assignment-action="start" data-assignment-id="${escapeHtml(assignment.id)}">开始背诵</button>
+            <button class="button button-secondary" type="button" data-assignment-action="edit" data-assignment-id="${escapeHtml(assignment.id)}">整体编辑</button>
+            <button class="button button-quiet menu-button" type="button" data-assignment-action="move-up" data-assignment-id="${escapeHtml(assignment.id)}" title="作业本上移" aria-label="作业本上移" ${assignmentIndex === 0 ? "disabled" : ""}>↑</button>
+            <button class="button button-quiet menu-button" type="button" data-assignment-action="move-down" data-assignment-id="${escapeHtml(assignment.id)}" title="作业本下移" aria-label="作业本下移" ${assignmentIndex === state.assignments.length - 1 ? "disabled" : ""}>↓</button>
             <button class="button button-quiet menu-button" type="button" data-assignment-action="export" data-assignment-id="${escapeHtml(assignment.id)}" title="导出这一份作业">导出</button>
             <button class="button button-quiet menu-button danger-text" type="button" data-assignment-action="delete" data-assignment-id="${escapeHtml(assignment.id)}" title="删除作业">删除</button>
           </div>
@@ -397,38 +474,61 @@ function addDemoAssignment() {
   showToast("已根据图片加入 14 条示例内容");
 }
 
-function sessionItemsFor(assignment, filter) {
-  const source = filter === "focus"
-    ? assignment.items.filter((item) => item.status === STATUS.UNKNOWN || item.status === STATUS.FUZZY)
-    : assignment.items;
-  return sortForReview(source);
+function assignmentsForScope(scope) {
+  if (scope === "all") return state.assignments;
+  const assignment = state.assignments.find((item) => item.id === scope);
+  return assignment ? [assignment] : [];
 }
 
-function startStudy(filter = "all", assignmentId = state.activeAssignmentId) {
-  const assignment = state.assignments.find((item) => item.id === assignmentId);
-  if (!assignment || !assignment.items.length) {
-    showToast("这份作业还没有可背诵的内容");
+function sessionEntriesFor(scope, filter) {
+  return buildStudyEntries(state.assignments, scope, filter);
+}
+
+function populateStudyFilters(scope = session?.scope || state.activeAssignmentId || "all", filter = session?.filter || "all") {
+  elements.studyScopeSelect.innerHTML = '<option value="all">所有作业本</option>' + state.assignments
+    .map((assignment) => `<option value="${escapeHtml(assignment.id)}">${escapeHtml(assignment.title)}</option>`)
+    .join("");
+  elements.studyScopeSelect.value = scope === "all" || state.assignments.some((item) => item.id === scope)
+    ? scope
+    : "all";
+  elements.studyStatusFilter.value = ["all", "unknown", "fuzzy", "focus"].includes(filter) ? filter : "all";
+}
+
+function startStudy(filter = "all", scope = state.activeAssignmentId) {
+  if (!state.assignments.length) {
+    showToast("请先添加一份背诵作业");
+    return;
+  }
+  const normalizedScope = scope === "all" || state.assignments.some((item) => item.id === scope)
+    ? scope
+    : state.activeAssignmentId || "all";
+  const entries = sessionEntriesFor(normalizedScope, filter);
+  if (!entries.length) {
+    const scopeLabel = normalizedScope === "all" ? "所有作业本" : "这份作业本";
+    showToast(`${scopeLabel}中没有符合当前类别的内容`);
     return;
   }
 
-  const items = sessionItemsFor(assignment, filter);
-  if (!items.length) {
-    showToast("太棒了，目前没有需要重点复习的内容！");
-    return;
+  if (normalizedScope !== "all") {
+    state.activeAssignmentId = normalizedScope;
+    saveState();
   }
-
-  state.activeAssignmentId = assignment.id;
-  saveState();
-  const withoutPrompt = items.filter((item) => !item.prompt).length;
-  const mode = assignment.type === "text" || withoutPrompt > items.length / 2 ? "follow" : "recall";
+  const sessionItems = entries.map((entry) => {
+    const assignment = state.assignments.find((item) => item.id === entry.assignmentId);
+    return assignment?.items.find((item) => item.id === entry.itemId);
+  }).filter(Boolean);
+  const withoutPrompt = sessionItems.filter((item) => !item.prompt).length;
+  const allText = assignmentsForScope(normalizedScope).every((assignment) => assignment.type === "text");
+  const mode = allText || withoutPrompt > sessionItems.length / 2 ? "follow" : "recall";
   session = {
-    assignmentId: assignment.id,
-    itemIds: items.map((item) => item.id),
-    index: 0,
+    scope: normalizedScope,
     filter,
+    entries,
+    index: 0,
     mode,
     revealed: mode === "follow",
   };
+  populateStudyFilters(normalizedScope, filter);
   elements.studyModeSelect.value = mode;
   showView("study");
   renderStudy();
@@ -438,14 +538,26 @@ function startStudy(filter = "all", assignmentId = state.activeAssignmentId) {
   }
 }
 
+function getSessionEntry() {
+  return session?.entries?.[session.index] || null;
+}
+
 function getSessionAssignment() {
-  return state.assignments.find((assignment) => assignment.id === session?.assignmentId) || null;
+  const entry = getSessionEntry();
+  return state.assignments.find((assignment) => assignment.id === entry?.assignmentId) || null;
 }
 
 function getCurrentItem() {
   const assignment = getSessionAssignment();
-  const id = session?.itemIds[session.index];
-  return assignment?.items.find((item) => item.id === id) || null;
+  const entry = getSessionEntry();
+  return assignment?.items.find((item) => item.id === entry?.itemId) || null;
+}
+
+function getSessionItems() {
+  return (session?.entries || []).map((entry) => {
+    const assignment = state.assignments.find((item) => item.id === entry.assignmentId);
+    return assignment?.items.find((item) => item.id === entry.itemId);
+  }).filter(Boolean);
 }
 
 function renderStudy() {
@@ -456,15 +568,21 @@ function renderStudy() {
     return;
   }
 
-  const count = session.itemIds.length;
+  const count = session.entries.length;
   const position = session.index + 1;
-  elements.studyAssignmentTitle.textContent = assignment.title;
+  elements.studyAssignmentTitle.textContent = session.scope === "all"
+    ? `全部作业 · ${assignment.title}`
+    : assignment.title;
   elements.studyCounter.textContent = `${position} / ${count}`;
   elements.studyProgressBar.style.width = `${(position / count) * 100}%`;
   elements.studyModeSelect.value = session.mode;
+  populateStudyFilters(session.scope, session.filter);
 
   elements.currentStatusPill.textContent = STATUS_LABELS[item.status] || STATUS_LABELS[STATUS.NEW];
   elements.currentStatusPill.className = `status-pill status-${item.status || STATUS.NEW}`;
+  elements.audioSourceBadge.hidden = !item.audio;
+  elements.speakButton.querySelector("span").textContent = item.audio ? "播放 MP3" : "朗读";
+  elements.speakButton.setAttribute("aria-label", item.audio ? "播放当前内容的 MP3" : "朗读当前内容");
   $$(".status-button").forEach((button) => {
     button.classList.toggle("selected", button.dataset.status === item.status);
   });
@@ -523,7 +641,7 @@ function moveItem(direction) {
   stopSpeechAndContinuous();
   const nextIndex = session.index + direction;
   if (nextIndex < 0) return;
-  if (nextIndex >= session.itemIds.length) {
+  if (nextIndex >= session.entries.length) {
     finishSession();
     return;
   }
@@ -535,36 +653,40 @@ function moveItem(direction) {
 
 function finishSession() {
   stopSpeechAndContinuous();
-  const assignment = getSessionAssignment();
-  if (!assignment) {
+  if (!session?.entries?.length) {
     showView("home");
     return;
   }
-  const sessionItems = session.itemIds
-    .map((id) => assignment.items.find((item) => item.id === id))
-    .filter(Boolean);
-  const summary = summarize(sessionItems);
+  const summary = summarize(getSessionItems());
   elements.completionSummary.textContent = `本轮 ${summary.total} 项：已掌握 ${summary.mastered} 项，模糊 ${summary.fuzzy} 项，不认识 ${summary.unknown} 项。`;
   elements.reviewAgainButton.hidden = summary.fuzzy + summary.unknown === 0;
   renderAll();
   elements.completionDialog.showModal();
 }
 
-function chooseVoice() {
+function chooseVoice(language = "en-US") {
   const voices = speechSynthesis.getVoices();
-  if (state.settings.voiceURI) {
+  if (language.startsWith("en") && state.settings.voiceURI) {
     const selected = voices.find((voice) => voice.voiceURI === state.settings.voiceURI);
     if (selected) return selected;
   }
-  const english = voices.filter((voice) => /^en[-_]/i.test(voice.lang));
-  return english.find((voice) => /Samantha|Google US English|Microsoft.*English/i.test(voice.name))
-    || english.find((voice) => /^en[-_]US/i.test(voice.lang))
-    || english[0]
+  const candidates = voices.filter((voice) => language.startsWith("zh")
+    ? /^zh[-_]/i.test(voice.lang)
+    : /^en[-_]/i.test(voice.lang));
+  if (language.startsWith("zh")) {
+    return candidates.find((voice) => /普通话|Mandarin|Xiaoxiao|Google.*中文/i.test(voice.name))
+      || candidates.find((voice) => /^zh[-_](CN|Hans)/i.test(voice.lang))
+      || candidates[0]
+      || null;
+  }
+  return candidates.find((voice) => /Samantha|Google US English|Microsoft.*English/i.test(voice.name))
+    || candidates.find((voice) => /^en[-_]US/i.test(voice.lang))
+    || candidates[0]
     || null;
 }
 
 function hasNativeTtsBridge() {
-  return typeof window.AndroidTts?.speak === "function";
+  return typeof window.AndroidTts?.speakLocalized === "function" || typeof window.AndroidTts?.speak === "function";
 }
 
 function updateTtsStatus() {
@@ -594,12 +716,27 @@ function updateTtsStatus() {
   } else if (status === "initializing") {
     elements.ttsStatusText.textContent = "正在连接安卓朗读服务，首次使用可能需要几秒钟。";
   } else {
-    elements.ttsStatusText.textContent = "朗读服务暂不可用，可打开系统朗读设置检查英文语音包。";
+    elements.ttsStatusText.textContent = "朗读服务暂不可用，可打开系统朗读设置检查中英文语音包。";
   }
+}
+
+function cleanupActiveAudio() {
+  const audio = activeAudio;
+  activeAudio = null;
+  if (audio) {
+    audio.onended = null;
+    audio.onerror = null;
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+  }
+  if (activeAudioUrl) URL.revokeObjectURL(activeAudioUrl);
+  activeAudioUrl = "";
 }
 
 function stopSpeech() {
   speechRunId += 1;
+  cleanupActiveAudio();
   nativeTtsCleanup?.();
   nativeTtsCleanup = null;
   if (window.AndroidTts?.stop) {
@@ -627,12 +764,13 @@ function speakText(text, onDone) {
   }
   const content = String(text || "").trim();
   if (!content) {
-    showToast("当前条目没有可朗读的英文内容");
+    showToast("当前条目没有可朗读内容");
     return;
   }
 
   stopSpeech();
   const runId = speechRunId;
+  const language = detectSpeechLanguage(content);
   const repeat = Math.max(1, Math.min(3, Number(state.settings.repeat) || 1));
   let completed = 0;
   elements.speakButton.classList.add("speaking");
@@ -657,13 +795,17 @@ function speakText(text, onDone) {
       if (runId !== speechRunId) return;
       elements.speakButton.classList.remove("speaking");
       updateTtsStatus();
-      showToast("朗读没有成功，请到设置中检查系统朗读服务和英文语音包。", 4500);
+      showToast("朗读没有成功，请到设置中检查系统朗读服务和中英文语音包。", 4500);
     };
     window.addEventListener("native-tts-done", handleDone);
     window.addEventListener("native-tts-error", handleError);
     nativeTtsCleanup = cleanupNativeListeners;
     try {
-      window.AndroidTts.speak(content, Number(state.settings.rate) || 0.85, repeat, requestId);
+      if (typeof window.AndroidTts.speakLocalized === "function") {
+        window.AndroidTts.speakLocalized(content, language, Number(state.settings.rate) || 0.85, repeat, requestId);
+      } else {
+        window.AndroidTts.speak(content, Number(state.settings.rate) || 0.85, repeat, requestId);
+      }
     } catch {
       handleError({ detail: { id: requestId } });
     }
@@ -673,11 +815,11 @@ function speakText(text, onDone) {
   const speakOnce = () => {
     if (runId !== speechRunId) return;
     const utterance = new SpeechSynthesisUtterance(content);
-    utterance.lang = "en-US";
+    utterance.lang = language;
     utterance.rate = Number(state.settings.rate) || 0.85;
     utterance.pitch = 1;
     utterance.volume = 1;
-    const voice = chooseVoice();
+    const voice = chooseVoice(language);
     if (voice) utterance.voice = voice;
     utterance.onend = () => {
       if (runId !== speechRunId) return;
@@ -700,10 +842,78 @@ function speakText(text, onDone) {
   speakOnce();
 }
 
+async function playStoredAudio(storageKey, options = {}) {
+  stopSpeech();
+  const runId = speechRunId;
+  const repeat = Math.max(1, Math.min(3, Number(options.repeat) || 1));
+  let completed = 0;
+  let failed = false;
+  elements.speakButton.classList.add("speaking");
+
+  const fallBack = () => {
+    if (failed || runId !== speechRunId) return;
+    failed = true;
+    cleanupActiveAudio();
+    elements.speakButton.classList.remove("speaking");
+    options.onFallback?.();
+  };
+
+  try {
+    const record = await getAudio(storageKey);
+    if (runId !== speechRunId) return;
+    if (!record?.blob) {
+      fallBack();
+      return;
+    }
+
+    activeAudioUrl = URL.createObjectURL(record.blob);
+    const audio = new Audio(activeAudioUrl);
+    activeAudio = audio;
+    audio.preload = "auto";
+    audio.playbackRate = Math.max(0.5, Math.min(2, Number(state.settings.rate) || 1));
+    audio.onended = () => {
+      if (runId !== speechRunId) return;
+      completed += 1;
+      if (completed < repeat) {
+        audio.currentTime = 0;
+        audio.play().catch(fallBack);
+        return;
+      }
+      cleanupActiveAudio();
+      elements.speakButton.classList.remove("speaking");
+      options.onDone?.();
+    };
+    audio.onerror = fallBack;
+    await audio.play();
+  } catch {
+    fallBack();
+  }
+}
+
 function speakCurrent(onDone) {
   const item = getCurrentItem();
   if (!item) return;
-  speakText(item.answer || item.prompt, onDone);
+  const text = item.answer || item.prompt;
+  if (item.audio) {
+    playStoredAudio(itemAudioKey(item.id), {
+      repeat: state.settings.repeat,
+      onDone,
+      onFallback: () => {
+        item.audio = null;
+        saveState();
+        renderStudy();
+        showToast("已上传的 MP3 无法读取，已改用自动朗读。", 3200);
+        speakText(text, onDone);
+      },
+    });
+    return;
+  }
+  speakText(text, onDone);
+}
+
+function canUseWholeAssignmentAudio() {
+  if (!session || session.scope === "all" || session.filter !== "all") return false;
+  return Boolean(assignmentsForScope(session.scope)[0]?.audio);
 }
 
 function updateContinuousButton() {
@@ -711,7 +921,9 @@ function updateContinuousButton() {
   if (!elements.continuousPlayButton) return;
   elements.continuousPlayButton.innerHTML = continuousPlaying
     ? '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 7h10v10H7z"/></svg>停止朗读'
-    : '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8 6 10 6-10 6V6Z"/></svg>连续朗读';
+    : canUseWholeAssignmentAudio()
+      ? '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8 6 10 6-10 6V6Z"/></svg>播放整份 MP3'
+      : '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8 6 10 6-10 6V6Z"/></svg>连续朗读';
 }
 
 function playContinuousItem() {
@@ -720,9 +932,9 @@ function playContinuousItem() {
   renderStudy();
   speakCurrent(() => {
     if (!continuousPlaying || !session) return;
-    if (session.index >= session.itemIds.length - 1) {
+    if (session.index >= session.entries.length - 1) {
       stopSpeechAndContinuous();
-      showToast("整份作业朗读完毕");
+      showToast(session.scope === "all" ? "所选内容朗读完毕" : "整份作业朗读完毕");
       return;
     }
     session.index += 1;
@@ -739,6 +951,26 @@ function toggleContinuousPlay() {
   }
   continuousPlaying = true;
   updateContinuousButton();
+  if (canUseWholeAssignmentAudio()) {
+    const assignment = assignmentsForScope(session.scope)[0];
+    session.revealed = true;
+    renderStudy();
+    playStoredAudio(assignmentAudioKey(assignment.id), {
+      repeat: 1,
+      onDone: () => {
+        stopSpeechAndContinuous();
+        showToast("整份作业 MP3 播放完毕");
+      },
+      onFallback: () => {
+        assignment.audio = null;
+        saveState();
+        renderAll();
+        showToast("整份 MP3 无法读取，已改为逐条朗读。", 3200);
+        playContinuousItem();
+      },
+    });
+    return;
+  }
   playContinuousItem();
 }
 
@@ -900,7 +1132,7 @@ async function recognizePhoto() {
   }
 }
 
-function saveImportedAssignment(event) {
+async function saveImportedAssignment(event) {
   event.preventDefault();
   const title = elements.assignmentTitleInput.value.trim();
   if (!title) {
@@ -909,6 +1141,14 @@ function saveImportedAssignment(event) {
   }
   const items = parseImportPreview();
   if (!items.length) return;
+  const audioFile = elements.assignmentAudioInput.files[0];
+  const audioError = validateMp3File(audioFile);
+  if (audioError) {
+    elements.importError.textContent = audioError;
+    elements.importError.hidden = false;
+    elements.assignmentAudioInput.focus();
+    return;
+  }
 
   const now = new Date().toISOString();
   const assignment = normalizeAssignment({
@@ -919,6 +1159,22 @@ function saveImportedAssignment(event) {
     updatedAt: now,
     items: items.map(createImportedItem),
   });
+  if (audioFile) {
+    const saveButton = $("#saveAssignmentButton");
+    saveButton.disabled = true;
+    saveButton.textContent = "正在保存 MP3…";
+    try {
+      assignment.audio = await storeMp3(assignmentAudioKey(assignment.id), audioFile);
+    } catch (error) {
+      elements.importError.textContent = error.message || "MP3 保存失败，请重试。";
+      elements.importError.hidden = false;
+      saveButton.disabled = false;
+      saveButton.textContent = "保存并开始背诵";
+      return;
+    }
+    saveButton.disabled = false;
+    saveButton.textContent = "保存并开始背诵";
+  }
   state.assignments.unshift(assignment);
   state.activeAssignmentId = assignment.id;
   saveState();
@@ -936,10 +1192,16 @@ function openEditItemDialog() {
   elements.editPromptInput.value = item.prompt;
   elements.editAnswerInput.value = item.answer;
   elements.editNoteInput.value = item.note;
+  elements.editAudioInput.value = "";
+  editAudioRemoveRequested = false;
+  elements.editAudioName.textContent = item.audio
+    ? `当前：${item.audio.name} · ${formatFileSize(item.audio.size)}`
+    : "尚未上传 MP3";
+  elements.removeEditAudioButton.hidden = !item.audio;
   elements.editItemDialog.showModal();
 }
 
-function saveEditedItem(event) {
+async function saveEditedItem(event) {
   event.preventDefault();
   const item = getCurrentItem();
   const assignment = getSessionAssignment();
@@ -947,6 +1209,30 @@ function saveEditedItem(event) {
   const answer = elements.editAnswerInput.value.trim();
   if (!answer) {
     elements.editAnswerInput.focus();
+    return;
+  }
+  const audioFile = elements.editAudioInput.files[0];
+  const audioError = validateMp3File(audioFile);
+  if (audioError) {
+    showToast(audioError, 3500);
+    elements.editAudioInput.focus();
+    return;
+  }
+  const saveButton = elements.editItemForm.querySelector('[type="submit"]');
+  saveButton.disabled = true;
+  saveButton.textContent = "正在保存…";
+  try {
+    if (editAudioRemoveRequested) {
+      await deleteAudio(itemAudioKey(item.id));
+      item.audio = null;
+    }
+    if (audioFile) {
+      item.audio = await storeMp3(itemAudioKey(item.id), audioFile);
+    }
+  } catch (error) {
+    showToast(error.message || "MP3 保存失败，请重试。", 3800);
+    saveButton.disabled = false;
+    saveButton.textContent = "保存修改";
     return;
   }
   item.prompt = elements.editPromptInput.value.trim();
@@ -958,6 +1244,8 @@ function saveEditedItem(event) {
   renderStudy();
   renderAll();
   showToast("内容已修改");
+  saveButton.disabled = false;
+  saveButton.textContent = "保存修改";
 }
 
 function deleteCurrentItem() {
@@ -966,14 +1254,185 @@ function deleteCurrentItem() {
   if (!item || !assignment) return;
   if (!window.confirm("确定删除当前这一条背诵内容吗？")) return;
   assignment.items = assignment.items.filter((candidate) => candidate.id !== item.id);
-  session.itemIds = session.itemIds.filter((id) => id !== item.id);
-  if (session.index >= session.itemIds.length) session.index = Math.max(0, session.itemIds.length - 1);
+  session.entries = session.entries.filter((entry) => !(entry.assignmentId === assignment.id && entry.itemId === item.id));
+  if (session.index >= session.entries.length) session.index = Math.max(0, session.entries.length - 1);
+  deleteAudio(itemAudioKey(item.id)).catch(() => {});
   assignment.updatedAt = new Date().toISOString();
   saveState();
   elements.editItemDialog.close();
   renderAll();
-  if (!session.itemIds.length) finishSession();
+  if (!session.entries.length) finishSession();
   else renderStudy();
+}
+
+function openEditAssignmentDialog(assignmentId) {
+  const assignment = state.assignments.find((item) => item.id === assignmentId);
+  if (!assignment) return;
+  bulkEditAssignmentId = assignment.id;
+  bulkDraftItems = assignment.items.map((item) => ({
+    ...normalizeItem(item),
+    audioFile: null,
+    removeAudio: false,
+  }));
+  bulkAssignmentAudioRemoveRequested = false;
+  elements.editAssignmentForm.reset();
+  elements.editAssignmentTitleInput.value = assignment.title;
+  elements.editAssignmentTypeInput.value = assignment.type;
+  elements.editAssignmentAudioName.textContent = assignment.audio
+    ? `当前：${assignment.audio.name} · ${formatFileSize(assignment.audio.size)}`
+    : "尚未上传整份 MP3";
+  elements.removeAssignmentAudioButton.hidden = !assignment.audio;
+  renderBulkEditList();
+  elements.editAssignmentDialog.showModal();
+}
+
+function renderBulkEditList() {
+  if (!bulkDraftItems.length) {
+    elements.bulkEditList.innerHTML = '<div class="bulk-empty">当前没有内容，请点击“新增一条”。</div>';
+    return;
+  }
+  elements.bulkEditList.innerHTML = bulkDraftItems.map((item, index) => {
+    const audioName = item.audioFile?.name || (!item.removeAudio && item.audio?.name) || "未上传 MP3";
+    const hasAudio = Boolean(item.audioFile || (!item.removeAudio && item.audio));
+    return `
+      <article class="bulk-edit-row" data-bulk-index="${index}">
+        <div class="bulk-row-heading">
+          <strong>第 ${index + 1} 条</strong>
+          <span class="status-pill status-${escapeHtml(item.status)}">${escapeHtml(STATUS_LABELS[item.status] || STATUS_LABELS[STATUS.NEW])}</span>
+          <span class="spacer"></span>
+          <button class="icon-button small" type="button" data-bulk-action="up" aria-label="上移" title="上移" ${index === 0 ? "disabled" : ""}>↑</button>
+          <button class="icon-button small" type="button" data-bulk-action="down" aria-label="下移" title="下移" ${index === bulkDraftItems.length - 1 ? "disabled" : ""}>↓</button>
+          <button class="text-button danger-text" type="button" data-bulk-action="delete">删除</button>
+        </div>
+        <div class="bulk-fields">
+          <label class="field"><span>中文提示</span><textarea rows="2" data-bulk-field="prompt">${escapeHtml(item.prompt)}</textarea></label>
+          <label class="field"><span>英文背诵内容</span><textarea rows="2" data-bulk-field="answer">${escapeHtml(item.answer)}</textarea></label>
+        </div>
+        <label class="field bulk-note"><span>备注</span><input data-bulk-field="note" value="${escapeHtml(item.note)}" /></label>
+        <div class="bulk-audio-row">
+          <label class="button button-secondary compact">上传本条 MP3<input class="sr-only" type="file" accept="audio/mpeg,.mp3" data-bulk-audio /></label>
+          <span title="${escapeHtml(audioName)}">${hasAudio ? "MP3：" : ""}${escapeHtml(audioName)}</span>
+          ${hasAudio ? '<button class="text-button danger-text" type="button" data-bulk-action="remove-audio">移除音频</button>' : ""}
+        </div>
+      </article>`;
+  }).join("");
+}
+
+function handleBulkEditorInput(event) {
+  const row = event.target.closest("[data-bulk-index]");
+  const field = event.target.dataset.bulkField;
+  const index = Number(row?.dataset.bulkIndex);
+  if (!field || !Number.isInteger(index) || !bulkDraftItems[index]) return;
+  bulkDraftItems[index][field] = event.target.value;
+}
+
+function handleBulkEditorClick(event) {
+  const button = event.target.closest("[data-bulk-action]");
+  const row = button?.closest("[data-bulk-index]");
+  const index = Number(row?.dataset.bulkIndex);
+  if (!button || !Number.isInteger(index) || !bulkDraftItems[index]) return;
+  const action = button.dataset.bulkAction;
+  if (action === "up" && index > 0) {
+    [bulkDraftItems[index - 1], bulkDraftItems[index]] = [bulkDraftItems[index], bulkDraftItems[index - 1]];
+  } else if (action === "down" && index < bulkDraftItems.length - 1) {
+    [bulkDraftItems[index + 1], bulkDraftItems[index]] = [bulkDraftItems[index], bulkDraftItems[index + 1]];
+  } else if (action === "delete") {
+    bulkDraftItems.splice(index, 1);
+  } else if (action === "remove-audio") {
+    bulkDraftItems[index].audioFile = null;
+    bulkDraftItems[index].removeAudio = true;
+  } else {
+    return;
+  }
+  renderBulkEditList();
+}
+
+function handleBulkAudioSelection(event) {
+  const input = event.target.closest("[data-bulk-audio]");
+  const row = input?.closest("[data-bulk-index]");
+  const index = Number(row?.dataset.bulkIndex);
+  if (!input || !Number.isInteger(index) || !bulkDraftItems[index]) return;
+  const file = input.files[0];
+  const error = validateMp3File(file);
+  if (error) {
+    showToast(error, 3500);
+    input.value = "";
+    return;
+  }
+  if (!file) return;
+  bulkDraftItems[index].audioFile = file;
+  bulkDraftItems[index].removeAudio = false;
+  renderBulkEditList();
+}
+
+async function saveAssignmentEdit(event) {
+  event.preventDefault();
+  const assignment = state.assignments.find((item) => item.id === bulkEditAssignmentId);
+  if (!assignment) return;
+  const title = elements.editAssignmentTitleInput.value.trim();
+  if (!title) {
+    elements.editAssignmentTitleInput.focus();
+    return;
+  }
+  if (!bulkDraftItems.length) {
+    showToast("作业本至少需要保留一条内容。", 3200);
+    return;
+  }
+  const invalidIndex = bulkDraftItems.findIndex((item) => !String(item.answer || "").trim());
+  if (invalidIndex >= 0) {
+    showToast(`第 ${invalidIndex + 1} 条缺少英文背诵内容。`, 3500);
+    elements.bulkEditList.querySelector(`[data-bulk-index="${invalidIndex}"] [data-bulk-field="answer"]`)?.focus();
+    return;
+  }
+  const assignmentAudioFile = elements.editAssignmentAudioInput.files[0];
+  const audioError = validateMp3File(assignmentAudioFile);
+  if (audioError) {
+    showToast(audioError, 3500);
+    elements.editAssignmentAudioInput.focus();
+    return;
+  }
+
+  elements.saveAssignmentEditButton.disabled = true;
+  elements.saveAssignmentEditButton.textContent = "正在保存…";
+  try {
+    const retainedIds = new Set(bulkDraftItems.map((item) => item.id));
+    const removedAudioKeys = assignment.items
+      .filter((item) => !retainedIds.has(item.id))
+      .map((item) => itemAudioKey(item.id));
+    bulkDraftItems.filter((item) => item.removeAudio).forEach((item) => removedAudioKeys.push(itemAudioKey(item.id)));
+    if (bulkAssignmentAudioRemoveRequested) removedAudioKeys.push(assignmentAudioKey(assignment.id));
+    let nextAssignmentAudio = bulkAssignmentAudioRemoveRequested ? null : assignment.audio;
+    if (assignmentAudioFile) {
+      nextAssignmentAudio = await storeMp3(assignmentAudioKey(assignment.id), assignmentAudioFile);
+    }
+
+    for (const item of bulkDraftItems) {
+      if (item.removeAudio) item.audio = null;
+      if (item.audioFile) item.audio = await storeMp3(itemAudioKey(item.id), item.audioFile);
+    }
+    await deleteAudios(removedAudioKeys).catch(() => {});
+
+    assignment.title = title;
+    assignment.type = elements.editAssignmentTypeInput.value;
+    assignment.audio = nextAssignmentAudio;
+    assignment.items = bulkDraftItems.map((item) => normalizeItem({
+      ...item,
+      prompt: String(item.prompt || "").trim(),
+      answer: String(item.answer || "").trim(),
+      note: String(item.note || "").trim(),
+      audio: item.audio,
+    }));
+    assignment.updatedAt = new Date().toISOString();
+    saveState();
+    renderAll();
+    elements.editAssignmentDialog.close();
+    showToast("作业本名称、内容和顺序已保存");
+  } catch (error) {
+    showToast(error.message || "整本修改保存失败，请重试。", 4000);
+  } finally {
+    elements.saveAssignmentEditButton.disabled = false;
+    elements.saveAssignmentEditButton.textContent = "保存整本修改";
+  }
 }
 
 function downloadJson(data, filename) {
@@ -1005,6 +1464,20 @@ function handleAssignmentAction(action, id) {
     startStudy(action === "focus" ? "focus" : "all", id);
     return;
   }
+  if (action === "edit") {
+    openEditAssignmentDialog(id);
+    return;
+  }
+  if (action === "move-up" || action === "move-down") {
+    const currentIndex = state.assignments.findIndex((item) => item.id === id);
+    const targetIndex = currentIndex + (action === "move-up" ? -1 : 1);
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= state.assignments.length) return;
+    [state.assignments[currentIndex], state.assignments[targetIndex]] = [state.assignments[targetIndex], state.assignments[currentIndex]];
+    saveState();
+    renderAll();
+    showToast("作业本顺序已调整");
+    return;
+  }
   if (action === "export") {
     downloadJson({ version: 1, ...assignment }, `${assignment.title}.json`);
     showToast("已导出这份作业");
@@ -1012,6 +1485,10 @@ function handleAssignmentAction(action, id) {
   }
   if (action === "delete") {
     if (!window.confirm(`确定删除“${assignment.title}”吗？这份作业的背诵进度也会删除。`)) return;
+    deleteAudios([
+      assignmentAudioKey(assignment.id),
+      ...assignment.items.map((item) => itemAudioKey(item.id)),
+    ]).catch(() => {});
     state.assignments = state.assignments.filter((item) => item.id !== id);
     if (state.activeAssignmentId === id) state.activeAssignmentId = state.assignments[0]?.id || null;
     saveState();
@@ -1057,6 +1534,7 @@ async function restoreBackup(file) {
     state = {
       ...base,
       ...parsed,
+      version: 2,
       assignments,
       activeAssignmentId: assignments.some((item) => item.id === parsed.activeAssignmentId)
         ? parsed.activeAssignmentId
@@ -1123,6 +1601,9 @@ function bindEvents() {
   elements.nextItemButton.addEventListener("click", () => moveItem(1));
   elements.continuousPlayButton.addEventListener("click", toggleContinuousPlay);
   elements.editItemButton.addEventListener("click", openEditItemDialog);
+  elements.applyStudyFilterButton.addEventListener("click", () => {
+    startStudy(elements.studyStatusFilter.value, elements.studyScopeSelect.value);
+  });
   $$(".status-button").forEach((button) => button.addEventListener("click", () => markCurrentItem(button.dataset.status)));
 
   elements.studyModeSelect.addEventListener("change", () => {
@@ -1144,14 +1625,67 @@ function bindEvents() {
   });
 
   elements.editItemForm.addEventListener("submit", saveEditedItem);
+  elements.editAudioInput.addEventListener("change", () => {
+    const file = elements.editAudioInput.files[0];
+    const error = validateMp3File(file);
+    if (error) {
+      showToast(error, 3500);
+      elements.editAudioInput.value = "";
+      return;
+    }
+    if (!file) return;
+    editAudioRemoveRequested = false;
+    elements.editAudioName.textContent = `待保存：${file.name} · ${formatFileSize(file.size)}`;
+    elements.removeEditAudioButton.hidden = false;
+  });
+  elements.removeEditAudioButton.addEventListener("click", () => {
+    editAudioRemoveRequested = true;
+    elements.editAudioInput.value = "";
+    elements.editAudioName.textContent = "保存后将移除本条 MP3";
+    elements.removeEditAudioButton.hidden = true;
+  });
   elements.deleteItemButton.addEventListener("click", deleteCurrentItem);
+  elements.editAssignmentForm.addEventListener("submit", saveAssignmentEdit);
+  elements.bulkEditList.addEventListener("input", handleBulkEditorInput);
+  elements.bulkEditList.addEventListener("click", handleBulkEditorClick);
+  elements.bulkEditList.addEventListener("change", handleBulkAudioSelection);
+  elements.addBulkItemButton.addEventListener("click", () => {
+    bulkDraftItems.push({
+      ...normalizeItem({ id: createId("item"), status: STATUS.NEW }),
+      audioFile: null,
+      removeAudio: false,
+    });
+    renderBulkEditList();
+    elements.bulkEditList.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+  elements.editAssignmentAudioInput.addEventListener("change", () => {
+    const file = elements.editAssignmentAudioInput.files[0];
+    const error = validateMp3File(file);
+    if (error) {
+      showToast(error, 3500);
+      elements.editAssignmentAudioInput.value = "";
+      return;
+    }
+    if (!file) return;
+    bulkAssignmentAudioRemoveRequested = false;
+    elements.editAssignmentAudioName.textContent = `待保存：${file.name} · ${formatFileSize(file.size)}`;
+    elements.removeAssignmentAudioButton.hidden = false;
+  });
+  elements.removeAssignmentAudioButton.addEventListener("click", () => {
+    bulkAssignmentAudioRemoveRequested = true;
+    elements.editAssignmentAudioInput.value = "";
+    elements.editAssignmentAudioName.textContent = "保存后将移除整份 MP3";
+    elements.removeAssignmentAudioButton.hidden = true;
+  });
   elements.settingsButton.addEventListener("click", openSettings);
   elements.settingsForm.addEventListener("submit", saveSettings);
   elements.testSpeechButton.addEventListener("click", () => {
-    speakText("This is a test of English reading.", () => {
-      updateTtsStatus();
-      showToast("测试朗读完成");
-    });
+    speakText("名词", () => window.setTimeout(() => {
+      speakText("This is a test of English reading.", () => {
+        updateTtsStatus();
+        showToast("中英文测试朗读完成");
+      });
+    }, 220));
   });
   elements.ttsSettingsButton.addEventListener("click", () => {
     try {
@@ -1163,9 +1697,9 @@ function bindEvents() {
   elements.exportBackupButton.addEventListener("click", exportBackup);
   elements.backupFileInput.addEventListener("change", () => restoreBackup(elements.backupFileInput.files[0]));
   elements.reviewAgainButton.addEventListener("click", () => {
-    const assignmentId = session?.assignmentId || state.activeAssignmentId;
+    const scope = session?.scope || state.activeAssignmentId;
     elements.completionDialog.close();
-    startStudy("focus", assignmentId);
+    startStudy("focus", scope);
   });
 
   elements.importDialog.addEventListener("close", () => {

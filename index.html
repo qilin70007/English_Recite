@@ -167,12 +167,21 @@
               </div>
             </div>
 
+            <div class="study-filter-bar" aria-label="选择背诵范围">
+              <label><span>作业范围</span><select id="studyScopeSelect"></select></label>
+              <label><span>背诵类别</span><select id="studyStatusFilter"><option value="all">全部内容</option><option value="unknown">只背不认识</option><option value="fuzzy">只背模糊</option><option value="focus">不认识＋模糊</option></select></label>
+              <button class="button button-secondary" id="applyStudyFilterButton" type="button">重新开始</button>
+            </div>
+
             <div class="study-progress" aria-hidden="true"><span id="studyProgressBar"></span></div>
 
             <div class="study-stage">
               <article class="recite-card" id="reciteCard">
                 <div class="card-meta">
-                  <span class="status-pill status-new" id="currentStatusPill">未标记</span>
+                  <div class="card-status-group">
+                    <span class="status-pill status-new" id="currentStatusPill">未标记</span>
+                    <span class="audio-source-badge" id="audioSourceBadge" hidden>MP3</span>
+                  </div>
                   <button class="sound-button" id="speakButton" type="button" aria-label="朗读当前英文">
                     <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6L8 10H4Zm12-1a4 4 0 0 1 0 6m2-9a8 8 0 0 1 0 12"/></svg>
                     <span>朗读</span>
@@ -298,6 +307,12 @@
           <div class="preview-list" id="previewList"></div>
         </section>
 
+        <label class="field audio-upload-field">
+          <span>整份作业朗读 MP3 <small>（可选，连续朗读时优先播放）</small></span>
+          <input id="assignmentAudioInput" type="file" accept="audio/mpeg,.mp3" />
+        </label>
+        <p class="field-help">也可以保存后在“作业本 → 整体编辑”中，给每一条内容分别上传 MP3。</p>
+
         <p class="form-error" id="importError" role="alert" hidden></p>
         <div class="modal-actions">
           <button class="button button-quiet" type="button" data-close-dialog="importDialog">取消</button>
@@ -312,7 +327,24 @@
         <label class="field"><span>中文提示（可选）</span><textarea id="editPromptInput" rows="3"></textarea></label>
         <label class="field"><span>英文背诵内容</span><textarea id="editAnswerInput" rows="5" required></textarea></label>
         <label class="field"><span>备注（可选）</span><input id="editNoteInput" /></label>
+        <label class="field"><span>本条朗读 MP3 <small>（上传后优先于自动朗读）</small></span><input id="editAudioInput" type="file" accept="audio/mpeg,.mp3" /></label>
+        <div class="audio-meta-row"><span id="editAudioName">尚未上传 MP3</span><button class="text-button danger-text" id="removeEditAudioButton" type="button" hidden>移除音频</button></div>
         <div class="modal-actions"><button class="button button-quiet danger-text" id="deleteItemButton" type="button">删除这一条</button><span class="spacer"></span><button class="button button-quiet" type="button" data-close-dialog="editItemDialog">取消</button><button class="button button-primary" type="submit">保存修改</button></div>
+      </form>
+    </dialog>
+
+    <dialog class="modal edit-assignment-modal" id="editAssignmentDialog">
+      <form method="dialog" class="modal-card" id="editAssignmentForm">
+        <div class="modal-header"><div><p class="eyebrow">整本校对</p><h2>编辑作业本</h2></div><button class="icon-button" type="button" data-close-dialog="editAssignmentDialog" aria-label="关闭">×</button></div>
+        <div class="form-grid two-columns">
+          <label class="field"><span>作业本名称</span><input id="editAssignmentTitleInput" maxlength="40" required /></label>
+          <label class="field"><span>内容类型</span><select id="editAssignmentTypeInput"><option value="mixed">混合内容</option><option value="word">单词</option><option value="phrase">短语</option><option value="sentence">句子</option><option value="text">课文</option></select></label>
+        </div>
+        <label class="field"><span>整份作业朗读 MP3 <small>（连续朗读时优先播放）</small></span><input id="editAssignmentAudioInput" type="file" accept="audio/mpeg,.mp3" /></label>
+        <div class="audio-meta-row"><span id="editAssignmentAudioName">尚未上传整份 MP3</span><button class="text-button danger-text" id="removeAssignmentAudioButton" type="button" hidden>移除音频</button></div>
+        <div class="section-heading compact bulk-heading"><div><h3>逐条校对</h3><span class="muted">可修正串行内容、调整顺序或为每条上传 MP3</span></div><button class="button button-secondary" id="addBulkItemButton" type="button">＋ 新增一条</button></div>
+        <div class="bulk-edit-list" id="bulkEditList"></div>
+        <div class="modal-actions"><button class="button button-quiet" type="button" data-close-dialog="editAssignmentDialog">取消</button><button class="button button-primary" id="saveAssignmentEditButton" type="submit">保存整本修改</button></div>
       </form>
     </dialog>
 
@@ -326,7 +358,7 @@
         </div>
         <label class="toggle-row"><span><strong>翻开答案后自动朗读</strong><small>帮助孩子及时校正发音</small></span><input id="autoSpeakInput" type="checkbox" role="switch" /></label>
         <div class="data-actions">
-          <button class="button button-secondary" id="testSpeechButton" type="button">测试英文朗读</button>
+          <button class="button button-secondary" id="testSpeechButton" type="button">测试中英文朗读</button>
           <button class="button button-secondary" id="ttsSettingsButton" type="button" hidden>系统朗读设置</button>
         </div>
         <p class="field-help" id="ttsStatusText">正在检查朗读服务…</p>
@@ -336,7 +368,7 @@
           <label class="button button-secondary" for="backupFileInput">恢复备份</label>
           <input class="sr-only" id="backupFileInput" type="file" accept="application/json,.json" />
         </div>
-        <p class="field-help">进度默认保存在当前浏览器。换手机前请先导出备份。</p>
+        <p class="field-help">进度默认保存在当前设备。JSON 备份包含作业和进度，但上传的 MP3 文件需在新设备重新添加。</p>
         <div class="modal-actions"><button class="button button-primary" type="submit">保存设置</button></div>
       </form>
     </dialog>

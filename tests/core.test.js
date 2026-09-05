@@ -4,7 +4,10 @@ import assert from "node:assert/strict";
 import {
   STATUS,
   buildCue,
+  buildStudyEntries,
   deduplicateItems,
+  detectSpeechLanguage,
+  matchesStatusFilter,
   parseDelimited,
   parseImportedContent,
   sortForReview,
@@ -63,6 +66,34 @@ test("sorts unknown and fuzzy content before new and mastered content", () => {
     { id: "u", status: STATUS.UNKNOWN },
   ]);
   assert.deepEqual(items.map((item) => item.id), ["u", "f", "n", "m"]);
+});
+
+test("filters one or several review statuses", () => {
+  assert.equal(matchesStatusFilter({ status: STATUS.UNKNOWN }, "unknown"), true);
+  assert.equal(matchesStatusFilter({ status: STATUS.FUZZY }, "unknown"), false);
+  assert.equal(matchesStatusFilter({ status: STATUS.FUZZY }, "focus"), true);
+  assert.equal(matchesStatusFilter({ status: STATUS.UNKNOWN }, "focus"), true);
+  assert.equal(matchesStatusFilter({ status: STATUS.MASTERED }, "focus"), false);
+});
+
+test("builds a cross-assignment study queue in notebook order", () => {
+  const assignments = [
+    { id: "a", items: [{ id: "a1", status: STATUS.FUZZY }, { id: "a2", status: STATUS.MASTERED }] },
+    { id: "b", items: [{ id: "b1", status: STATUS.UNKNOWN }] },
+  ];
+  assert.deepEqual(buildStudyEntries(assignments, "all", "focus"), [
+    { assignmentId: "a", itemId: "a1" },
+    { assignmentId: "b", itemId: "b1" },
+  ]);
+  assert.deepEqual(buildStudyEntries(assignments, "b", "unknown"), [
+    { assignmentId: "b", itemId: "b1" },
+  ]);
+});
+
+test("chooses Chinese TTS for Chinese labels and English TTS for sentences", () => {
+  assert.equal(detectSpeechLanguage("名词"), "zh-CN");
+  assert.equal(detectSpeechLanguage("n. 名词"), "zh-CN");
+  assert.equal(detectSpeechLanguage("I am interested in science."), "en-US");
 });
 
 test("summarizes progress and builds a short paragraph cue", () => {

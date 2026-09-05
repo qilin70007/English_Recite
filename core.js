@@ -257,6 +257,34 @@ export function sortForReview(items = []) {
   });
 }
 
+export function matchesStatusFilter(item, filter = "all") {
+  const status = Object.values(STATUS).includes(item?.status) ? item.status : STATUS.NEW;
+  if (filter === "focus") return status === STATUS.UNKNOWN || status === STATUS.FUZZY;
+  if (filter === STATUS.UNKNOWN) return status === STATUS.UNKNOWN;
+  if (filter === STATUS.FUZZY) return status === STATUS.FUZZY;
+  if (filter === STATUS.MASTERED) return status === STATUS.MASTERED;
+  if (filter === STATUS.NEW) return status === STATUS.NEW;
+  return true;
+}
+
+export function buildStudyEntries(assignments = [], scope = "all", filter = "all") {
+  const selectedAssignments = scope === "all"
+    ? assignments
+    : assignments.filter((assignment) => assignment.id === scope);
+  return selectedAssignments.flatMap((assignment) => sortForReview(
+    (assignment.items || []).filter((item) => matchesStatusFilter(item, filter)),
+  ).map((item) => ({ assignmentId: assignment.id, itemId: item.id })));
+}
+
+export function detectSpeechLanguage(text = "") {
+  const value = String(text);
+  const chineseCount = (value.match(/[\u3400-\u9fff]/g) || []).length;
+  const latinCount = (value.match(/[A-Za-z]/g) || []).length;
+  return chineseCount > 0 && (latinCount === 0 || chineseCount * 2 >= latinCount)
+    ? "zh-CN"
+    : "en-US";
+}
+
 export function summarize(items = []) {
   const summary = { total: items.length, new: 0, unknown: 0, fuzzy: 0, mastered: 0 };
   for (const item of items) {

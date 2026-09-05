@@ -412,6 +412,13 @@ svg {
   text-decoration: none;
 }
 
+.button:disabled,
+.icon-button:disabled {
+  opacity: .38;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .button-primary {
   color: #fff;
   background: var(--primary);
@@ -761,6 +768,39 @@ svg {
   gap: 8px;
 }
 
+.study-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(170px, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .72);
+}
+
+.study-filter-bar label {
+  display: grid;
+  gap: 5px;
+}
+
+.study-filter-bar label > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.study-filter-bar select {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 34px 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--ink);
+  background: #fff;
+}
+
 .select-label select,
 .field select,
 .field input,
@@ -779,7 +819,7 @@ svg {
 
 .study-progress {
   height: 6px;
-  margin: 18px 0 30px;
+  margin: 14px 0 30px;
   overflow: hidden;
   border-radius: 999px;
   background: #dfe8e4;
@@ -812,6 +852,24 @@ svg {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.card-status-group {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.audio-source-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 29px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: #76501c;
+  background: #fff0d7;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .status-pill {
@@ -1097,6 +1155,10 @@ svg {
   margin: 0 auto;
 }
 
+.edit-assignment-modal {
+  width: min(1040px, calc(100% - 28px));
+}
+
 .modal-header {
   display: flex;
   align-items: flex-start;
@@ -1157,6 +1219,109 @@ svg {
   margin: 0 0 12px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.audio-upload-field {
+  margin-top: 15px;
+}
+
+.audio-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 34px;
+  margin: -7px 0 13px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.audio-meta-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bulk-heading {
+  align-items: end;
+  margin: 24px 0 10px;
+}
+
+.bulk-heading > div span {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+}
+
+.bulk-edit-list {
+  display: grid;
+  gap: 12px;
+}
+
+.bulk-edit-row {
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-soft);
+}
+
+.bulk-row-heading,
+.bulk-audio-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bulk-row-heading {
+  margin-bottom: 11px;
+}
+
+.bulk-row-heading .icon-button.small {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-size: 16px;
+}
+
+.bulk-fields {
+  display: grid;
+  grid-template-columns: 1fr 1.25fr;
+  gap: 10px;
+}
+
+.bulk-fields .field,
+.bulk-note {
+  margin-bottom: 9px;
+}
+
+.bulk-audio-row {
+  flex-wrap: wrap;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.bulk-audio-row > span {
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.button.compact {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.bulk-empty {
+  padding: 28px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  color: var(--muted);
+  text-align: center;
 }
 
 .input-tabs {
@@ -1624,6 +1789,17 @@ input[role="switch"]:checked::after {
     gap: 8px;
   }
 
+  .study-filter-bar {
+    grid-template-columns: 1fr 1fr;
+    margin-top: 12px;
+    padding: 10px;
+  }
+
+  .study-filter-bar .button {
+    grid-column: 1 / -1;
+    min-height: 40px;
+  }
+
   .study-toolbar > .button {
     width: 42px;
     padding: 0;
@@ -1793,8 +1969,28 @@ input[role="switch"]:checked::after {
   }
 
   .form-grid.two-columns,
-  .photo-grid {
+  .photo-grid,
+  .bulk-fields {
     grid-template-columns: 1fr;
+  }
+
+  .bulk-edit-row {
+    padding: 13px 11px;
+  }
+
+  .bulk-row-heading {
+    flex-wrap: wrap;
+  }
+
+  .bulk-heading {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .bulk-heading .button {
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding: 0 11px;
   }
 
   .photo-preview-wrap {

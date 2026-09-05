@@ -74,12 +74,14 @@ public class MainActivity extends Activity {
 
     private static final class PendingSpeech {
         final String text;
+        final String languageTag;
         final float rate;
         final int repeat;
         final String requestId;
 
-        PendingSpeech(String text, float rate, int repeat, String requestId) {
+        PendingSpeech(String text, String languageTag, float rate, int repeat, String requestId) {
             this.text = text;
+            this.languageTag = languageTag;
             this.rate = rate;
             this.repeat = repeat;
             this.requestId = requestId;
@@ -405,8 +407,8 @@ public class MainActivity extends Activity {
         dispatchTtsEvent("native-tts-error", failedRequest);
     }
 
-    private void queueSpeech(String text, float rate, int repeat, String requestId) {
-        PendingSpeech speech = new PendingSpeech(text, rate, repeat, requestId);
+    private void queueSpeech(String text, String languageTag, float rate, int repeat, String requestId) {
+        PendingSpeech speech = new PendingSpeech(text, languageTag, rate, repeat, requestId);
         synchronized (this) {
             if (!ttsReady || textToSpeech == null) {
                 pendingSpeech = speech;
@@ -427,9 +429,12 @@ public class MainActivity extends Activity {
             engine = textToSpeech;
         }
 
-        int languageStatus = engine.setLanguage(Locale.US);
+        Locale requestedLocale = localeFor(speech.languageTag);
+        int languageStatus = engine.setLanguage(requestedLocale);
         if (isLanguageUnavailable(languageStatus)) {
-            languageStatus = engine.setLanguage(Locale.ENGLISH);
+            languageStatus = engine.setLanguage(requestedLocale.getLanguage().equals(Locale.CHINESE.getLanguage())
+                    ? Locale.CHINA
+                    : Locale.ENGLISH);
         }
         if (isLanguageUnavailable(languageStatus)) {
             tryNextTtsEngine(speech);
@@ -477,6 +482,28 @@ public class MainActivity extends Activity {
     private boolean isLanguageUnavailable(int languageStatus) {
         return languageStatus == TextToSpeech.LANG_MISSING_DATA
                 || languageStatus == TextToSpeech.LANG_NOT_SUPPORTED;
+    }
+
+    private Locale localeFor(String languageTag) {
+        if (languageTag != null && languageTag.toLowerCase(Locale.ROOT).startsWith("zh")) {
+            return Locale.SIMPLIFIED_CHINESE;
+        }
+        return Locale.US;
+    }
+
+    private String languageTagForText(String text) {
+        int chineseCount = 0;
+        int latinCount = 0;
+        for (int index = 0; index < text.length(); index += 1) {
+            char character = text.charAt(index);
+            if (character >= '\u3400' && character <= '\u9fff') chineseCount += 1;
+            if ((character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z')) {
+                latinCount += 1;
+            }
+        }
+        return chineseCount > 0 && (latinCount == 0 || chineseCount * 2 >= latinCount)
+                ? "zh-CN"
+                : "en-US";
     }
 
     private void tryNextTtsEngine(PendingSpeech speech) {
@@ -546,7 +573,20 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void speak(String text, double rate, int repeat, String requestId) {
             if (text == null || text.trim().isEmpty() || requestId == null) return;
-            runOnUiThread(() -> queueSpeech(text.trim(), (float) rate, repeat, requestId));
+            String content = text.trim();
+            runOnUiThread(() -> queueSpeech(
+                    content,
+                    languageTagForText(content),
+                    (float) rate,
+                    repeat,
+                    requestId
+            ));
+        }
+
+        @JavascriptInterface
+        public void speakLocalized(String text, String languageTag, double rate, int repeat, String requestId) {
+            if (text == null || text.trim().isEmpty() || requestId == null) return;
+            runOnUiThread(() -> queueSpeech(text.trim(), languageTag, (float) rate, repeat, requestId));
         }
 
         @JavascriptInterface
