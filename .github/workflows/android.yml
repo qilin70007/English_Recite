@@ -32,14 +32,20 @@ jobs:
       - name: Build installable debug APK
         run: gradle :app:assembleDebug --no-daemon --stacktrace
 
+      - name: Verify APK and Android TTS declaration
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print "$APK" | grep -q "android.intent.action.TTS_SERVICE"
+
       - name: Prepare download file
         run: |
           mkdir -p output
-          cp app/build/outputs/apk/debug/app-debug.apk output/English_Recite.apk
+          cp app/build/outputs/apk/debug/app-debug.apk output/English_Recite_v1.0.1.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: English_Recite-Android
-          path: output/English_Recite.apk
+          path: output/English_Recite_v1.0.1.apk
           if-no-files-found: error
           retention-days: 30

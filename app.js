@@ -115,6 +115,9 @@ const elements = {
   rateSelect: $("#rateSelect"),
   repeatSelect: $("#repeatSelect"),
   autoSpeakInput: $("#autoSpeakInput"),
+  testSpeechButton: $("#testSpeechButton"),
+  ttsSettingsButton: $("#ttsSettingsButton"),
+  ttsStatusText: $("#ttsStatusText"),
   exportBackupButton: $("#exportBackupButton"),
   backupFileInput: $("#backupFileInput"),
   completionDialog: $("#completionDialog"),
@@ -560,6 +563,41 @@ function chooseVoice() {
     || null;
 }
 
+function hasNativeTtsBridge() {
+  return typeof window.AndroidTts?.speak === "function";
+}
+
+function updateTtsStatus() {
+  const hasNativeTts = hasNativeTtsBridge();
+  elements.ttsSettingsButton.hidden = !hasNativeTts || typeof window.AndroidTts?.openSettings !== "function";
+  if (!hasNativeTts) {
+    elements.ttsStatusText.textContent = "网页朗读由浏览器提供。";
+    return;
+  }
+
+  let status = "initializing";
+  try {
+    status = typeof window.AndroidTts?.getStatus === "function"
+      ? String(window.AndroidTts.getStatus())
+      : "ready";
+  } catch {
+    status = "unavailable";
+  }
+  if (status.startsWith("ready")) {
+    const engine = status.split(":").slice(1).join(":");
+    const engineName = engine === "com.google.android.tts"
+      ? "Google 文字转语音"
+      : /iflytek|speechcloud/i.test(engine)
+        ? "讯飞语音"
+        : "系统文字转语音";
+    elements.ttsStatusText.textContent = `安卓朗读服务已就绪：${engineName}`;
+  } else if (status === "initializing") {
+    elements.ttsStatusText.textContent = "正在连接安卓朗读服务，首次使用可能需要几秒钟。";
+  } else {
+    elements.ttsStatusText.textContent = "朗读服务暂不可用，可打开系统朗读设置检查英文语音包。";
+  }
+}
+
 function stopSpeech() {
   speechRunId += 1;
   nativeTtsCleanup?.();
@@ -582,7 +620,7 @@ function stopSpeechAndContinuous() {
 }
 
 function speakText(text, onDone) {
-  const hasNativeTts = Boolean(window.AndroidTts?.speak);
+  const hasNativeTts = hasNativeTtsBridge();
   if (!hasNativeTts && !("speechSynthesis" in window)) {
     showToast("当前浏览器不支持自动朗读，请换用 Chrome、Edge 或 Safari。", 3500);
     return;
@@ -618,7 +656,8 @@ function speakText(text, onDone) {
       cleanupNativeListeners();
       if (runId !== speechRunId) return;
       elements.speakButton.classList.remove("speaking");
-      showToast("朗读没有成功，请检查手机的文字转语音设置。", 3200);
+      updateTtsStatus();
+      showToast("朗读没有成功，请到设置中检查系统朗读服务和英文语音包。", 4500);
     };
     window.addEventListener("native-tts-done", handleDone);
     window.addEventListener("native-tts-error", handleError);
@@ -983,6 +1022,7 @@ function handleAssignmentAction(action, id) {
 
 function openSettings() {
   populateVoices();
+  updateTtsStatus();
   elements.voiceSelect.value = state.settings.voiceURI || "";
   elements.rateSelect.value = String(state.settings.rate);
   elements.repeatSelect.value = String(state.settings.repeat);
@@ -1107,6 +1147,19 @@ function bindEvents() {
   elements.deleteItemButton.addEventListener("click", deleteCurrentItem);
   elements.settingsButton.addEventListener("click", openSettings);
   elements.settingsForm.addEventListener("submit", saveSettings);
+  elements.testSpeechButton.addEventListener("click", () => {
+    speakText("This is a test of English reading.", () => {
+      updateTtsStatus();
+      showToast("测试朗读完成");
+    });
+  });
+  elements.ttsSettingsButton.addEventListener("click", () => {
+    try {
+      window.AndroidTts?.openSettings?.();
+    } catch {
+      showToast("未能打开系统朗读设置，请在手机设置中搜索“文字转语音输出”。", 4200);
+    }
+  });
   elements.exportBackupButton.addEventListener("click", exportBackup);
   elements.backupFileInput.addEventListener("change", () => restoreBackup(elements.backupFileInput.files[0]));
   elements.reviewAgainButton.addEventListener("click", () => {

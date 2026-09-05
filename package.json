@@ -1,6 +1,6 @@
 {
   "name": "english-recite",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "面向中学生的英语背诵辅助 PWA",

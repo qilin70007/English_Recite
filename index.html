@@ -325,6 +325,11 @@
           <label class="field"><span>每条朗读</span><select id="repeatSelect"><option value="1">1 遍</option><option value="2">2 遍</option><option value="3">3 遍</option></select></label>
         </div>
         <label class="toggle-row"><span><strong>翻开答案后自动朗读</strong><small>帮助孩子及时校正发音</small></span><input id="autoSpeakInput" type="checkbox" role="switch" /></label>
+        <div class="data-actions">
+          <button class="button button-secondary" id="testSpeechButton" type="button">测试英文朗读</button>
+          <button class="button button-secondary" id="ttsSettingsButton" type="button" hidden>系统朗读设置</button>
+        </div>
+        <p class="field-help" id="ttsStatusText">正在检查朗读服务…</p>
         <hr />
         <div class="data-actions">
           <button class="button button-secondary" id="exportBackupButton" type="button">导出全部数据</button>
