@@ -1017,11 +1017,11 @@ function toggleContinuousPlay() {
   playContinuousItem();
 }
 
-function populateVoices() {
+function populateVoices(useSavedSettings = false) {
   for (const language of ["zh-CN", "en-US"]) {
     const chinese = language === "zh-CN";
     const select = chinese ? elements.chineseVoiceSelect : elements.voiceSelect;
-    const current = elements.settingsDialog.open ? select.value
+    const current = elements.settingsDialog.open && useSavedSettings !== true ? select.value
       : chinese ? state.settings.chineseVoiceURI : state.settings.voiceURI;
     let voices = [];
     const native = typeof window.AndroidTts?.getVoices === "function";
@@ -1732,7 +1732,13 @@ async function restoreBackup(file) {
     elements.saveIndicator.textContent = "已保存在本机";
     renderAll();
     showView("home");
+    populateVoices(true);
+    elements.rateSelect.value = String(state.settings.rate);
+    elements.repeatSelect.value = String(state.settings.repeat);
+    elements.autoSpeakInput.checked = Boolean(state.settings.autoSpeak);
+    updateTtsStatus();
     updateBackupStatus(`已恢复 ${assignments.length} 本作业和 ${restored.audios.length} 个音频，顺序与进度已保留。${restored.missingCount ? `还有 ${restored.missingCount} 个音频需重新添加。` : ""}`);
+    elements.backupStatus.scrollIntoView({ block: "center" });
     showToast("备份已恢复", 3200);
   } catch (error) {
     updateBackupStatus(`恢复失败，当前数据已保留。${error instanceof SyntaxError ? "文件内容不是有效备份。" : error.message || "请检查文件或剩余空间。"}`);

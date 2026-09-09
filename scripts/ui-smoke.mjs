@@ -197,6 +197,8 @@ try {
   await page.locator("#backupFileInput").setInputFiles(backupPath);
   await page.waitForFunction(() => document.querySelector("#backupStatus").textContent.startsWith("已恢复"));
   const restored = await state(page);
+  assert.equal(await page.locator("#rateSelect").inputValue(), "0.7", "restored settings must be visible before save");
+  assert.equal(await page.locator("#chineseVoiceSelect").inputValue(), "test.engine|cn2");
   const withoutIds = (data) => data.assignments.map(({ id, items, ...assignment }) => ({ ...assignment, items: items.map(({ id, ...item }) => item) }));
   assert.deepEqual(withoutIds(restored), withoutIds(snapshot));
   assert.equal(restored.activeAssignmentId, restored.assignments[1].id);
@@ -207,6 +209,7 @@ try {
     return [await (await getAudio(`assignment:${assignment.id}`)).blob.text(), await (await getAudio(`item:${assignment.items[0].id}`)).blob.text()];
   });
   assert.deepEqual(restoredAudio, ["ID3-distinct-whole-assignment", "ID3-audio-dispatch-fixture"]);
+  await page.locator("#backupStatus").scrollIntoViewIfNeeded();
   await page.screenshot({ path: resolve(shots, "backup-restored-mobile.png") });
   // Invalid archives and localStorage failures cannot replace existing data.
   await page.locator("#backupFileInput").setInputFiles({ name: "broken.zip", mimeType: "application/zip", buffer: Buffer.from("PK\x03\x04broken") });
