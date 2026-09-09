@@ -155,6 +155,7 @@ try {
   await page.locator("#editAssignmentTitleInput").fill("已校对作业");
   await page.locator("#editAssignmentAudioInput").setInputFiles({ name: "name.mp3", mimeType: "audio/mpeg", buffer: Buffer.from("ID3-distinct-whole-assignment") });
   await page.locator("#saveAssignmentEditButton").click();
+  await page.waitForFunction(() => !document.querySelector("#editAssignmentDialog").open);
   assert.equal((await state(page)).assignments[1].title, "已校对作业");
 
   // Word export uses the same ordered selection shown in the UI.
