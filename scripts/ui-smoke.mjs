@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { readFile, mkdir } from "node:fs/promises";
 import { resolve, extname } from "node:path";
 import { chromium } from "playwright";
+import { openZip } from "../archive.js";
 
 const root = resolve(import.meta.dirname, "..");
 const mime = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
@@ -81,6 +82,27 @@ try {
   assert.match(await page.locator("#importError").textContent(), /缺少英文/);
   assert.equal((await state(page)).assignments.length, 1);
   await page.locator('[data-preview-index="0"] [data-preview-field=answer]').fill("name");
+  await page.locator("#addPreviewItemButton").click();
+  await page.locator('[data-preview-index="3"] [data-preview-field=prompt]').fill("新增长内容校对");
+  const longAnswer = "I want to get on well with my classmates.\n".repeat(18).trim();
+  await page.locator('[data-preview-index="3"] [data-preview-field=answer]').fill(longAnswer);
+  assert.ok(await page.locator('[data-preview-index="3"] [data-preview-field=answer]').evaluate((field) => field.clientHeight >= field.scrollHeight && field.clientHeight > 400));
+  await page.locator('[data-preview-index="3"] [data-preview-action=up]').click();
+  assert.equal(await page.locator('[data-preview-index="2"] [data-preview-field=answer]').inputValue(), longAnswer);
+  await page.locator('[data-preview-index="2"] [data-preview-field=answer]').fill("I want to get on well with my classmates.\nWe can help each other and learn English together.");
+  await page.locator('[data-preview-index="2"]').screenshot({ path: resolve(shots, "review-card-mobile.png") });
+  for (const width of [360, 390, 720]) {
+    await page.setViewportSize({ width, height: 844 });
+    assert.ok(await page.locator("#importForm").evaluate((form) => form.scrollWidth <= form.clientWidth));
+    assert.ok(await page.locator('[data-preview-index="0"] [data-preview-field=answer]').evaluate((field) => field.getBoundingClientRect().width > Math.min(260, innerWidth * 0.65)));
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('[data-preview-index="2"] [data-preview-action=down]').click();
+  await page.locator('[data-preview-index="3"] [data-preview-action=delete]').click();
+  assert.equal(await page.locator(".preview-row").count(), 3);
+  await page.locator("#undoPreviewDeleteButton").click();
+  assert.equal(await page.locator(".preview-row").count(), 4);
+  await page.locator('[data-preview-index="3"] [data-preview-action=delete]').click();
   await page.screenshot({ path: resolve(shots, "import-preview-mobile.png"), fullPage: true });
   await page.locator("#saveAssignmentButton").click();
   assert.equal((await state(page)).assignments.length, 2);
@@ -131,8 +153,92 @@ try {
   assert.equal((await state(page)).assignments[1].title, "格式与声音验证");
   await page.locator('[data-assignment-action=edit]').last().click();
   await page.locator("#editAssignmentTitleInput").fill("已校对作业");
+  await page.locator("#editAssignmentAudioInput").setInputFiles({ name: "name.mp3", mimeType: "audio/mpeg", buffer: Buffer.from("ID3-distinct-whole-assignment") });
   await page.locator("#saveAssignmentEditButton").click();
   assert.equal((await state(page)).assignments[1].title, "已校对作业");
+
+  // Word export uses the same ordered selection shown in the UI.
+  await page.locator("#exportWordButton").click();
+  assert.match(await page.locator("#wordExportSummary").textContent(), /1 条/);
+  await page.locator('[name=wordStatus][value=unknown]').uncheck();
+  assert.equal(await page.locator("#saveWordButton").isDisabled(), true);
+  await page.locator('[name=wordStatus][value=unknown]').check();
+  await page.screenshot({ path: resolve(shots, "word-export-mobile.png") });
+  const wordDownload = page.waitForEvent("download");
+  await page.locator("#saveWordButton").click();
+  const word = await wordDownload;
+  assert.match(word.suggestedFilename(), /\.docx$/);
+  const doc = await openZip(new Blob([await readFile(await word.path())]));
+  const documentXml = await (await doc.get("word/document.xml").read()).text();
+  assert.match(documentXml, /名称（名字）/);
+  assert.doesNotMatch(documentXml, /I am interested in science/);
+
+  // Export both same-named MP3s, then restore after clearing both storage areas.
+  const snapshot = await state(page);
+  await page.locator("#settingsButton").click();
+  const backupDownload = page.waitForEvent("download");
+  await page.locator("#exportBackupButton").click();
+  const backup = await backupDownload;
+  assert.match(backup.suggestedFilename(), /\.zip$/);
+  const backupPath = resolve(shots, "roundtrip-backup.zip");
+  await backup.saveAs(backupPath);
+  await page.waitForFunction(() => !document.querySelector("#exportBackupButton").disabled);
+  assert.match(await page.locator("#backupStatus").textContent(), /2 个音频/);
+  await page.evaluate(async () => {
+    const { audioLocations } = await import("./backup.js");
+    const { deleteAudios } = await import("./audio-store.js");
+    await deleteAudios(audioLocations(JSON.parse(localStorage.getItem("englishRecite.state.v1"))).map((location) => location.key));
+    localStorage.clear();
+  });
+  await page.reload();
+  await page.locator("#settingsButton").click();
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.locator("#backupFileInput").setInputFiles(backupPath);
+  await page.waitForFunction(() => document.querySelector("#backupStatus").textContent.startsWith("已恢复"));
+  const restored = await state(page);
+  const withoutIds = (data) => data.assignments.map(({ id, items, ...assignment }) => ({ ...assignment, items: items.map(({ id, ...item }) => item) }));
+  assert.deepEqual(withoutIds(restored), withoutIds(snapshot));
+  assert.equal(restored.activeAssignmentId, restored.assignments[1].id);
+  assert.notEqual(restored.assignments[1].id, snapshot.assignments[1].id);
+  const restoredAudio = await page.evaluate(async () => {
+    const { getAudio } = await import("./audio-store.js");
+    const assignment = JSON.parse(localStorage.getItem("englishRecite.state.v1")).assignments[1];
+    return [await (await getAudio(`assignment:${assignment.id}`)).blob.text(), await (await getAudio(`item:${assignment.items[0].id}`)).blob.text()];
+  });
+  assert.deepEqual(restoredAudio, ["ID3-distinct-whole-assignment", "ID3-audio-dispatch-fixture"]);
+  await page.screenshot({ path: resolve(shots, "backup-restored-mobile.png") });
+  // Invalid archives and localStorage failures cannot replace existing data.
+  await page.locator("#backupFileInput").setInputFiles({ name: "broken.zip", mimeType: "application/zip", buffer: Buffer.from("PK\x03\x04broken") });
+  await page.waitForFunction(() => document.querySelector("#backupStatus").textContent.startsWith("恢复失败"));
+  assert.deepEqual(await state(page), restored);
+  await page.evaluate(() => {
+    window.originalStorageSet = Storage.prototype.setItem;
+    Storage.prototype.setItem = function(key, value) { if (key === "englishRecite.state.v1") throw new DOMException("test disk full", "QuotaExceededError"); return window.originalStorageSet.call(this, key, value); };
+  });
+  await page.locator("#backupFileInput").setInputFiles(backupPath);
+  await page.waitForFunction(() => document.querySelector("#backupStatus").textContent.startsWith("恢复失败") && !document.querySelector("#backupFileInput").disabled);
+  assert.deepEqual(await state(page), restored);
+  await page.evaluate(() => { Storage.prototype.setItem = window.originalStorageSet; });
+  await page.locator('[data-close-dialog=settingsDialog]').click();
+  await page.locator(".mobile-nav [data-view-target=library]").click();
+  await page.locator('[data-assignment-action=start]').last().click();
+  await page.evaluate(() => { window.ttsCalls = []; window.mp3Calls = []; });
+  await page.locator("#speakButton").click();
+  await page.waitForFunction(() => window.mp3Calls.length > 0);
+  assert.equal(await page.evaluate(() => window.ttsCalls.length), 0, "restored MP3 retains priority");
+
+  // Deleting every draft must not silently recreate the originally pasted rows.
+  await page.locator(".mobile-add").click();
+  await page.locator("#contentInput").fill("【中文】测试｜【英文】test");
+  await page.locator("#saveAssignmentButton").click();
+  await page.locator('[data-preview-action=delete]').click();
+  await page.locator("#saveAssignmentButton").click();
+  assert.equal(await page.locator(".preview-row").count(), 0);
+  assert.match(await page.locator("#importError").textContent(), /至少新增/);
+  await page.locator("#addPreviewItemButton").click();
+  await page.locator('[data-preview-field=answer]').fill("new entry");
+  await page.locator("#saveAssignmentButton").click();
+  assert.equal((await state(page)).assignments[0].items[0].answer, "new entry");
   await context.close();
 
   // Browser fallback must also select Mandarin and use each segment's language/rate.
@@ -160,7 +266,7 @@ try {
     { lang: "zh-CN", rate: 1, voice: "cn" }, { lang: "en-US", rate: 0.85, voice: "en" },
   ]);
   assert.deepEqual(errors, [], "no browser exceptions");
-  console.log("UI smoke passed: 360/390/720px buttons, labeled preview/edit/validation, MP3 priority, status double tap, filters, native/browser speech dispatch, saved voices, ordering and rename.");
+  console.log("UI smoke passed: 360/390/720px layout, expanding/reorder/add/delete/undo preview, Word selection/download, MP3 backup across empty storage, restore rollback, MP3 priority, speech, progress and notebook editing.");
 } finally {
   await browser.close();
   await new Promise((done) => server.close(done));

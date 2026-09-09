@@ -18,6 +18,7 @@ import android.provider.Settings;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.speech.tts.Voice;
+import android.util.Base64;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
 import android.webkit.RenderProcessGoneDetail;
@@ -36,6 +37,9 @@ import org.json.JSONObject;
 import org.json.JSONArray;
 
 import java.io.IOException;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -44,11 +48,12 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 
 public class MainActivity extends Activity {
     private static final String APP_URL = "https://appassets.androidplatform.net/assets/www/index.html";
     private static final int FILE_CHOOSER_REQUEST = 501;
-    private static final int SAVE_JSON_REQUEST = 502;
+    private static final int SAVE_FILE_REQUEST = 502;
     private static final String GOOGLE_TTS_PACKAGE = "com.google.android.tts";
     private static final String SYSTEM_DEFAULT_ENGINE = "";
     private static final long TTS_INIT_TIMEOUT_MS = 8000L;
@@ -72,8 +77,24 @@ public class MainActivity extends Activity {
     private final AudioManager.OnAudioFocusChangeListener ttsFocusListener = focusChange -> {
         // Android handles ducking/pausing of other media; speech continues on the media stream.
     };
-    private String pendingJsonContent;
+    private PendingFile pendingFile;
     private boolean returningFromTtsSettings;
+
+    private static final class PendingFile {
+        final String id = UUID.randomUUID().toString();
+        final String name;
+        final String mime;
+        final File file;
+        FileOutputStream stream;
+        boolean awaitingPicker;
+
+        PendingFile(File cache, String name, String mime) throws IOException {
+            this.name = name;
+            this.mime = mime;
+            file = File.createTempFile("recite-export-", ".tmp", cache);
+            stream = new FileOutputStream(file);
+        }
+    }
 
     private static final class PendingSpeech {
         final String text;
@@ -735,21 +756,98 @@ public class MainActivity extends Activity {
 
     private final class AndroidFilesBridge {
         @JavascriptInterface
-        public void saveJson(String fileName, String content) {
+        public String beginFile(String fileName, String mime) {
+            synchronized (MainActivity.this) {
+                if (pendingFile != null) return "";
+                if (!("application/json".equals(mime) || "application/zip".equals(mime)
+                        || "application/vnd.openxmlformats-officedocument.wordprocessingml.document".equals(mime))) return "";
+                try {
+                    pendingFile = new PendingFile(getCacheDir(), fileName, mime);
+                    return pendingFile.id;
+                } catch (IOException error) {
+                    return "";
+                }
+            }
+        }
+
+        @JavascriptInterface
+        public boolean appendFile(String id, String encodedChunk) {
+            synchronized (MainActivity.this) {
+                if (pendingFile == null || !pendingFile.id.equals(id) || pendingFile.awaitingPicker
+                        || pendingFile.stream == null || encodedChunk.length() > 90000) return false;
+                try {
+                    byte[] bytes = Base64.decode(encodedChunk, Base64.NO_WRAP);
+                    if (bytes.length > 65536) return false;
+                    pendingFile.stream.write(bytes);
+                    return true;
+                } catch (IOException | IllegalArgumentException error) {
+                    return false;
+                }
+            }
+        }
+
+        @JavascriptInterface
+        public boolean finishFile(String id) {
+            final PendingFile prepared;
+            synchronized (MainActivity.this) {
+                if (pendingFile == null || !pendingFile.id.equals(id) || pendingFile.awaitingPicker || pendingFile.stream == null) return false;
+                prepared = pendingFile;
+                try {
+                    prepared.stream.close();
+                    prepared.stream = null;
+                    prepared.awaitingPicker = true;
+                } catch (IOException error) {
+                    return false;
+                }
+            }
             runOnUiThread(() -> {
-                pendingJsonContent = content;
                 Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT)
                         .addCategory(Intent.CATEGORY_OPENABLE)
-                        .setType("application/json")
-                        .putExtra(Intent.EXTRA_TITLE, fileName);
+                        .setType(prepared.mime)
+                        .putExtra(Intent.EXTRA_TITLE, prepared.name);
                 try {
-                    startActivityForResult(intent, SAVE_JSON_REQUEST);
+                    startActivityForResult(intent, SAVE_FILE_REQUEST);
                 } catch (ActivityNotFoundException error) {
-                    pendingJsonContent = null;
+                    completeFile(prepared, "error");
                     Toast.makeText(MainActivity.this, R.string.no_file_picker, Toast.LENGTH_LONG).show();
                 }
             });
+            return true;
         }
+
+        @JavascriptInterface
+        public void cancelFile(String id) {
+            synchronized (MainActivity.this) {
+                if (pendingFile != null && pendingFile.id.equals(id) && !pendingFile.awaitingPicker) {
+                    completeFile(pendingFile, "cancelled");
+                }
+            }
+        }
+
+        @JavascriptInterface
+        public void saveJson(String fileName, String content) {
+            String id = beginFile(fileName, "application/json");
+            if (id.isEmpty()) return;
+            byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+            for (int offset = 0; offset < bytes.length; offset += 65536) {
+                String chunk = Base64.encodeToString(bytes, offset, Math.min(65536, bytes.length - offset), Base64.NO_WRAP);
+                if (!appendFile(id, chunk)) { cancelFile(id); return; }
+            }
+            if (!finishFile(id)) cancelFile(id);
+        }
+    }
+
+    private void completeFile(PendingFile completed, String status) {
+        synchronized (this) {
+            try { if (completed.stream != null) completed.stream.close(); } catch (IOException ignored) { }
+            completed.stream = null;
+            completed.file.delete();
+            if (pendingFile == completed) pendingFile = null;
+        }
+        runOnUiThread(() -> {
+            if (webView != null) webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('native-file-saved',{detail:{id:"
+                    + JSONObject.quote(completed.id) + ",status:" + JSONObject.quote(status) + "}}));", null);
+        });
     }
 
     @Override
@@ -764,17 +862,31 @@ public class MainActivity extends Activity {
             return;
         }
 
-        if (requestCode == SAVE_JSON_REQUEST) {
-            if (resultCode == RESULT_OK && data != null && data.getData() != null && pendingJsonContent != null) {
-                try (OutputStream stream = getContentResolver().openOutputStream(data.getData())) {
-                    if (stream == null) throw new IOException("No output stream");
-                    stream.write(pendingJsonContent.getBytes(StandardCharsets.UTF_8));
-                    Toast.makeText(this, R.string.file_saved, Toast.LENGTH_SHORT).show();
-                } catch (IOException error) {
-                    Toast.makeText(this, R.string.file_save_failed, Toast.LENGTH_LONG).show();
-                }
+        if (requestCode == SAVE_FILE_REQUEST) {
+            final PendingFile prepared;
+            synchronized (this) { prepared = pendingFile; }
+            if (prepared == null) return;
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+                completeFile(prepared, "cancelled");
+                return;
             }
-            pendingJsonContent = null;
+            final Uri destination = data.getData();
+            // Large MP3 backups must not block the Android UI thread.
+            new Thread(() -> {
+                String status = "saved";
+                try (FileInputStream source = new FileInputStream(prepared.file);
+                     OutputStream target = getContentResolver().openOutputStream(destination, "wt")) {
+                    if (target == null) throw new IOException("No output stream");
+                    byte[] buffer = new byte[65536];
+                    int length;
+                    while ((length = source.read(buffer)) != -1) target.write(buffer, 0, length);
+                } catch (IOException | RuntimeException error) {
+                    status = "error";
+                }
+                final boolean success = "saved".equals(status);
+                completeFile(prepared, status);
+                runOnUiThread(() -> Toast.makeText(this, success ? R.string.file_saved : R.string.file_save_failed, Toast.LENGTH_LONG).show());
+            }, "ReciteFileExport").start();
         }
     }
 
@@ -809,7 +921,7 @@ public class MainActivity extends Activity {
         }
         String script = "(function(){"
                 + "const d=document.querySelector('dialog[open]');"
-                + "if(d){d.close();return 'handled';}"
+                + "if(d){if(d.dataset.busy!=='true')d.close();return 'handled';}"
                 + "const study=document.getElementById('studyView');"
                 + "const library=document.getElementById('libraryView');"
                 + "if((study&&!study.hidden)||(library&&!library.hidden)){"
@@ -827,6 +939,13 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        synchronized (this) {
+            if (pendingFile != null) {
+                try { if (pendingFile.stream != null) pendingFile.stream.close(); } catch (IOException ignored) { }
+                pendingFile.file.delete();
+                pendingFile = null;
+            }
+        }
         if (filePathCallback != null) {
             filePathCallback.onReceiveValue(null);
             filePathCallback = null;

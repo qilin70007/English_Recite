@@ -10,6 +10,9 @@ import {
   summarize,
 } from "./core.js";
 import { deleteAudio, deleteAudios, getAudio, saveAudio } from "./audio-store.js";
+import { createUnmasteredDocx, selectUnmastered } from "./word-export.js";
+import { audioLocations, createBackup, readBackup, stageRestore } from "./backup.js";
+import { downloadFile } from "./file-download.js";
 
 const STORAGE_KEY = "englishRecite.state.v1";
 const OCR_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
@@ -112,6 +115,8 @@ const elements = {
   importPreview: $("#importPreview"),
   previewHeading: $("#previewHeading"),
   previewList: $("#previewList"),
+  addPreviewItemButton: $("#addPreviewItemButton"),
+  undoPreviewDeleteButton: $("#undoPreviewDeleteButton"),
   importError: $("#importError"),
   editItemDialog: $("#editItemDialog"),
   editItemForm: $("#editItemForm"),
@@ -145,6 +150,13 @@ const elements = {
   ttsStatusText: $("#ttsStatusText"),
   exportBackupButton: $("#exportBackupButton"),
   backupFileInput: $("#backupFileInput"),
+  backupStatus: $("#backupStatus"),
+  exportWordButton: $("#exportWordButton"),
+  wordExportDialog: $("#wordExportDialog"),
+  wordExportForm: $("#wordExportForm"),
+  wordScopeSelect: $("#wordScopeSelect"),
+  wordExportSummary: $("#wordExportSummary"),
+  saveWordButton: $("#saveWordButton"),
   completionDialog: $("#completionDialog"),
   completionSummary: $("#completionSummary"),
   reviewAgainButton: $("#reviewAgainButton"),
@@ -232,6 +244,8 @@ let currentView = "home";
 let session = null;
 let parsedImportItems = [];
 let importPreviewSignature = "";
+let deletedPreviewItem = null;
+let backupBusy = false;
 let importFileFormat = "auto";
 let selectedPhotoFile = null;
 let photoObjectUrl = "";
@@ -439,7 +453,8 @@ function renderLibrary() {
             <details class="assignment-more"><summary class="button button-quiet">更多 ▾</summary><div class="assignment-more-actions">
             <button class="button button-quiet menu-button" type="button" data-assignment-action="move-up" data-assignment-id="${escapeHtml(assignment.id)}" ${assignmentIndex === 0 ? "disabled" : ""}>↑ 上移</button>
             <button class="button button-quiet menu-button" type="button" data-assignment-action="move-down" data-assignment-id="${escapeHtml(assignment.id)}" ${assignmentIndex === state.assignments.length - 1 ? "disabled" : ""}>↓ 下移</button>
-            <button class="button button-quiet menu-button" type="button" data-assignment-action="export" data-assignment-id="${escapeHtml(assignment.id)}" title="导出这一份作业">导出</button>
+            <button class="button button-quiet menu-button" type="button" data-assignment-action="word" data-assignment-id="${escapeHtml(assignment.id)}">未掌握导出 Word</button>
+            <button class="button button-quiet menu-button" type="button" data-assignment-action="export" data-assignment-id="${escapeHtml(assignment.id)}" title="仅导出文字与进度">导出作业 JSON</button>
             <button class="button button-quiet menu-button danger-text" type="button" data-assignment-action="delete" data-assignment-id="${escapeHtml(assignment.id)}" title="删除作业">删除</button>
             </div></details>
           </div>
@@ -1071,6 +1086,8 @@ function currentImportSignature() {
 function invalidateImportPreview() {
   importPreviewSignature = "";
   parsedImportItems = [];
+  deletedPreviewItem = null;
+  elements.undoPreviewDeleteButton.hidden = true;
   elements.importPreview.hidden = true;
   elements.importError.hidden = true;
   elements.saveAssignmentButton.textContent = "下一步：核对内容";
@@ -1078,7 +1095,7 @@ function invalidateImportPreview() {
 
 function parseImportPreview() {
   elements.importError.hidden = true;
-  if (importPreviewSignature === currentImportSignature() && parsedImportItems.length) return parsedImportItems;
+  if (importPreviewSignature === currentImportSignature()) return parsedImportItems;
   try {
     parsedImportItems = deduplicateItems(parseImportedContent(elements.contentInput.value, getParseOptions()));
   } catch (error) {
@@ -1095,18 +1112,62 @@ function parseImportPreview() {
     return [];
   }
 
-  const missingAnswers = parsedImportItems.filter((item) => !item.answer).length;
-  elements.previewHeading.textContent = `识别到 ${parsedImportItems.length} 条${missingAnswers ? `，${missingAnswers} 条缺少英文` : ""}`;
-  elements.previewList.innerHTML = parsedImportItems.map((item, index) => `
-    <div class="preview-row" data-preview-index="${index}">
-      <span class="preview-number">${index + 1}</span>
-      <label class="field"><span>【中文】提示（可选）</span><textarea rows="2" data-preview-field="prompt" placeholder="不填也可以">${escapeHtml(item.prompt)}</textarea></label>
-      <label class="field"><span>【英文】要背的内容</span><textarea class="english" rows="2" data-preview-field="answer" placeholder="请补充英文">${escapeHtml(item.answer)}</textarea></label>
-    </div>`).join("");
   elements.importPreview.hidden = false;
   importPreviewSignature = currentImportSignature();
+  deletedPreviewItem = null;
+  renderImportPreview();
   elements.saveAssignmentButton.textContent = "确认保存并开始背诵";
   return parsedImportItems;
+}
+
+function growTextarea(field) {
+  if (field?.tagName !== "TEXTAREA" || !field.getClientRects().length) return;
+  field.style.height = "auto";
+  field.style.height = `${field.scrollHeight + 3}px`;
+}
+
+function updatePreviewHeading() {
+  const missing = parsedImportItems.filter((item) => !item.answer.trim()).length;
+  elements.previewHeading.textContent = `核对 ${parsedImportItems.length} 条${missing ? `，${missing} 条缺少英文` : ""}`;
+}
+
+function renderImportPreview() {
+  updatePreviewHeading();
+  elements.undoPreviewDeleteButton.hidden = !deletedPreviewItem;
+  elements.previewList.innerHTML = parsedImportItems.map((item, index) => `
+    <article class="preview-row" data-preview-index="${index}">
+      <div class="preview-row-heading"><strong>第 ${index + 1} 条</strong><div class="preview-row-actions">
+        <button class="button button-secondary" type="button" data-preview-action="up" aria-label="上移第 ${index + 1} 条" ${index === 0 ? "disabled" : ""}>↑ 上移</button>
+        <button class="button button-secondary" type="button" data-preview-action="down" aria-label="下移第 ${index + 1} 条" ${index === parsedImportItems.length - 1 ? "disabled" : ""}>↓ 下移</button>
+        <button class="button button-quiet danger-text" type="button" data-preview-action="delete" aria-label="删除第 ${index + 1} 条">删除</button>
+      </div></div>
+      <label class="field"><span>【中文】提示（可选）</span><textarea rows="3" data-preview-field="prompt" placeholder="例如：名称；不填也可以">${escapeHtml(item.prompt)}</textarea></label>
+      <label class="field"><span>【英文】要背的内容</span><textarea class="english" rows="4" data-preview-field="answer" placeholder="例如：name">${escapeHtml(item.answer)}</textarea></label>
+      ${item.note ? `<label class="field"><span>备注</span><textarea rows="2" data-preview-field="note">${escapeHtml(item.note)}</textarea></label>` : ""}
+    </article>`).join("") || '<p class="bulk-empty">内容已清空，可新增词条或撤销删除。</p>';
+  $$("textarea", elements.previewList).forEach(growTextarea);
+}
+
+function handlePreviewAction(event) {
+  const button = event.target.closest("[data-preview-action]");
+  if (!button) return;
+  const index = Number(button.closest("[data-preview-index]")?.dataset.previewIndex);
+  if (!parsedImportItems[index]) return;
+  const action = button.dataset.previewAction;
+  let target = index;
+  if (action === "delete") {
+    deletedPreviewItem = { item: parsedImportItems.splice(index, 1)[0], index };
+    showToast("已删除，可点击“撤销删除”恢复");
+    target = Math.min(index, parsedImportItems.length - 1);
+  } else {
+    target = index + (action === "up" ? -1 : 1);
+    if (target < 0 || target >= parsedImportItems.length) return;
+    [parsedImportItems[index], parsedImportItems[target]] = [parsedImportItems[target], parsedImportItems[index]];
+  }
+  renderImportPreview();
+  const next = elements.previewList.querySelector(`[data-preview-index="${target}"]`);
+  next?.scrollIntoView({ block: "nearest" });
+  next?.querySelector(`[data-preview-action="${action}"]`)?.focus({ preventScroll: true });
 }
 
 async function readContentFile(file) {
@@ -1197,9 +1258,12 @@ async function saveImportedAssignment(event) {
     elements.assignmentTitleInput.focus();
     return;
   }
-  const previewWasCurrent = importPreviewSignature === currentImportSignature() && parsedImportItems.length > 0;
+  const previewWasCurrent = importPreviewSignature === currentImportSignature();
   const items = parseImportPreview();
-  if (!items.length) return;
+  if (!items.length) {
+    if (previewWasCurrent) { elements.importError.textContent = "请至少新增一条内容后再保存。"; elements.importError.hidden = false; }
+    return;
+  }
   if (!previewWasCurrent) {
     elements.importPreview.scrollIntoView({ behavior: "smooth", block: "center" });
     showToast("请核对下方中英文，可直接修改；确认后再保存。", 3200);
@@ -1356,6 +1420,7 @@ function openEditAssignmentDialog(assignmentId) {
   elements.removeAssignmentAudioButton.hidden = !assignment.audio;
   renderBulkEditList();
   elements.editAssignmentDialog.showModal();
+  $$("textarea", elements.bulkEditList).forEach(growTextarea);
 }
 
 function renderBulkEditList() {
@@ -1388,6 +1453,7 @@ function renderBulkEditList() {
         </div>
       </article>`;
   }).join("");
+  $$("textarea", elements.bulkEditList).forEach(growTextarea);
 }
 
 function handleBulkEditorInput(event) {
@@ -1396,6 +1462,7 @@ function handleBulkEditorInput(event) {
   const index = Number(row?.dataset.bulkIndex);
   if (!field || !Number.isInteger(index) || !bulkDraftItems[index]) return;
   bulkDraftItems[index][field] = event.target.value;
+  growTextarea(event.target);
 }
 
 function handleBulkEditorClick(event) {
@@ -1555,6 +1622,10 @@ function handleAssignmentAction(action, id) {
     showToast("已导出这份作业");
     return;
   }
+  if (action === "word") {
+    openWordExport(id);
+    return;
+  }
   if (action === "delete") {
     if (!window.confirm(`确定删除“${assignment.title}”吗？这份作业的背诵进度也会删除。`)) return;
     deleteAudios([
@@ -1592,22 +1663,58 @@ function saveSettings(event) {
   showToast("设置已保存");
 }
 
-function exportBackup() {
-  downloadJson({ ...state, exportedAt: new Date().toISOString() }, `英语背诵助手备份-${getDefaultTitle().replace("英语背诵", "")}.json`);
-  showToast("全部作业和进度已导出");
+function updateBackupStatus(message) {
+  elements.backupStatus.textContent = message;
+}
+
+function setBackupBusy(busy) {
+  backupBusy = busy;
+  elements.settingsDialog.dataset.busy = String(busy);
+  elements.exportBackupButton.disabled = busy;
+  elements.backupFileInput.disabled = busy;
+  elements.settingsForm.querySelector('[type="submit"]').disabled = busy;
+  elements.settingsForm.querySelector('[data-close-dialog]').disabled = busy;
+}
+
+async function exportBackup() {
+  if (backupBusy) return;
+  setBackupBusy(true);
+  try {
+    const result = await createBackup(state, getAudio, updateBackupStatus);
+    if (result.missingCount && !window.confirm(`有 ${result.missingCount} 个音频在本机已找不到。备份会保留它们的名称和对应位置，并包含其余 ${result.audioCount} 个音频。是否继续导出？`)) { updateBackupStatus("已取消导出，可补充缺失音频后重新备份。"); return; }
+    updateBackupStatus("备份已准备，请选择保存位置…");
+    const saved = await downloadFile(result.blob, `英语背诵完整备份-${new Date().toISOString().slice(0, 10)}.zip`, updateBackupStatus);
+    updateBackupStatus(saved ? `已导出全部作业、顺序、进度和 ${result.audioCount} 个音频${result.missingCount ? `；${result.missingCount} 个原音频缺失，需重新添加` : ""}。` : "已取消保存，可以重新导出。");
+  } catch (error) {
+    updateBackupStatus(error.message || "备份失败，请重试。");
+  } finally {
+    setBackupBusy(false);
+  }
 }
 
 async function restoreBackup(file) {
-  if (!file) return;
+  if (!file || backupBusy) return;
+  setBackupBusy(true);
+  const stagedKeys = [];
+  let committed = false;
   try {
-    const parsed = JSON.parse(await file.text());
-    if (!Array.isArray(parsed.assignments)) throw new Error("invalid");
-    if (!window.confirm(`备份中有 ${parsed.assignments.length} 份作业。恢复后将替换当前数据，是否继续？`)) return;
+    updateBackupStatus("正在检查备份…");
+    const restored = await readBackup(file, getAudio, updateBackupStatus);
+    const missingWarning = restored.missingCount ? `\n有 ${restored.missingCount} 个原音频无法恢复，将保留名称和对应位置，需重新添加 MP3。` : "";
+    if (!window.confirm(`备份中有 ${restored.state.assignments.length} 本作业、${restored.audios.length} 个可恢复音频。恢复后将替换当前作业、顺序和进度。${missingWarning}\n是否继续？`)) { updateBackupStatus("已取消恢复。"); return; }
+    stopSpeechAndContinuous();
+    const staged = stageRestore(restored.state, createId);
+    for (const [index, audio] of restored.audios.entries()) {
+      const key = staged.keys.get(audio.oldKey);
+      stagedKeys.push(key);
+      updateBackupStatus(`正在恢复音频 ${index + 1} / ${restored.audios.length}…`);
+      await saveAudio(key, new File([audio.blob], audio.metadata.name, { type: audio.metadata.type || "audio/mpeg" }));
+    }
     const base = defaultState();
+    const parsed = staged.state;
     const assignments = parsed.assignments.map(normalizeAssignment);
-    state = {
+    const nextState = {
       ...base,
-      ...parsed,
       version: 2,
       assignments,
       activeAssignmentId: assignments.some((item) => item.id === parsed.activeAssignmentId)
@@ -1615,15 +1722,62 @@ async function restoreBackup(file) {
         : assignments[0]?.id || null,
       settings: { ...base.settings, ...(parsed.settings || {}) },
     };
-    saveState();
+    // Commit only after every audio is saved. Do not swallow storage failures.
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+    const oldKeys = audioLocations(state).map((location) => location.key);
+    state = nextState;
+    committed = true;
+    session = null;
+    deleteAudios(oldKeys).catch(() => {});
+    elements.saveIndicator.textContent = "已保存在本机";
     renderAll();
-    elements.settingsDialog.close();
     showView("home");
-    showToast("备份已恢复");
-  } catch {
-    showToast("这不是有效的英语背诵助手备份文件。", 3500);
+    updateBackupStatus(`已恢复 ${assignments.length} 本作业和 ${restored.audios.length} 个音频，顺序与进度已保留。${restored.missingCount ? `还有 ${restored.missingCount} 个音频需重新添加。` : ""}`);
+    showToast("备份已恢复", 3200);
+  } catch (error) {
+    updateBackupStatus(`恢复失败，当前数据已保留。${error instanceof SyntaxError ? "文件内容不是有效备份。" : error.message || "请检查文件或剩余空间。"}`);
   } finally {
+    if (!committed && stagedKeys.length) await deleteAudios(stagedKeys).catch(() => {});
     elements.backupFileInput.value = "";
+    setBackupBusy(false);
+  }
+}
+
+function wordExportOptions() {
+  return { scope: elements.wordScopeSelect.value, statuses: $$("[name=wordStatus]:checked", elements.wordExportForm).map((input) => input.value) };
+}
+
+function updateWordExportSummary() {
+  const options = wordExportOptions();
+  const groups = selectUnmastered(state.assignments, options.scope, options.statuses);
+  const count = groups.reduce((sum, group) => sum + group.items.length, 0);
+  elements.wordExportSummary.textContent = count ? `将导出 ${groups.length} 本作业中的 ${count} 条内容，按作业本和词条顺序排列，包含中文提示、英文及备注。` : "没有符合选择的内容，请选择其他作业本或状态。";
+  elements.saveWordButton.disabled = count === 0;
+}
+
+function openWordExport(scope = "all") {
+  stopSpeechAndContinuous();
+  elements.wordExportForm.reset();
+  elements.wordScopeSelect.innerHTML = '<option value="all">所有作业本</option>' + state.assignments.map((assignment) => `<option value="${escapeHtml(assignment.id)}">${escapeHtml(assignment.title)}</option>`).join("");
+  elements.wordScopeSelect.value = scope;
+  updateWordExportSummary();
+  elements.wordExportDialog.showModal();
+}
+
+async function exportWord(event) {
+  event.preventDefault();
+  elements.saveWordButton.disabled = true;
+  try {
+    const options = wordExportOptions();
+    const blob = await createUnmasteredDocx(state.assignments, options);
+    const title = options.scope === "all" ? "全部作业" : state.assignments.find((assignment) => assignment.id === options.scope)?.title || "作业";
+    const saved = await downloadFile(blob, `${title}-未掌握复习清单.docx`, (message) => { elements.wordExportSummary.textContent = message; });
+    if (saved) { elements.wordExportDialog.close(); showToast("Word 复习清单已导出"); }
+    else updateWordExportSummary();
+  } catch (error) {
+    elements.wordExportSummary.textContent = error.message || "Word 导出失败，请重试。";
+  } finally {
+    elements.saveWordButton.disabled = false;
   }
 }
 
@@ -1719,11 +1873,24 @@ function bindEvents() {
   elements.previewList.addEventListener("input", (event) => {
     const field = event.target.dataset.previewField;
     const index = Number(event.target.closest("[data-preview-index]")?.dataset.previewIndex);
-    if (!["prompt", "answer"].includes(field) || !parsedImportItems[index]) return;
+    if (!["prompt", "answer", "note"].includes(field) || !parsedImportItems[index]) return;
     parsedImportItems[index][field] = event.target.value;
-    const missing = parsedImportItems.filter((item) => !item.answer.trim()).length;
-    elements.previewHeading.textContent = `核对 ${parsedImportItems.length} 条${missing ? `，${missing} 条缺少英文` : ""}`;
+    growTextarea(event.target);
+    updatePreviewHeading();
   });
+  elements.previewList.addEventListener("click", handlePreviewAction);
+  elements.addPreviewItemButton.addEventListener("click", () => {
+    parsedImportItems.push({ prompt: "", answer: "", note: "" });
+    renderImportPreview();
+    elements.previewList.lastElementChild?.querySelector("textarea")?.focus();
+  });
+  elements.undoPreviewDeleteButton.addEventListener("click", () => {
+    if (!deletedPreviewItem) return;
+    parsedImportItems.splice(deletedPreviewItem.index, 0, deletedPreviewItem.item);
+    deletedPreviewItem = null;
+    renderImportPreview();
+  });
+  window.addEventListener("resize", () => { $$("#previewList textarea, #bulkEditList textarea").forEach(growTextarea); });
   elements.importForm.addEventListener("submit", saveImportedAssignment);
   elements.assignmentTypeInput.addEventListener("change", () => {
     if (elements.assignmentTypeInput.value === "text") elements.paragraphSplitInput.checked = true;
@@ -1794,6 +1961,7 @@ function bindEvents() {
   });
   window.addEventListener("native-tts-ready", () => { populateVoices(); updateTtsStatus(); });
   elements.settingsDialog.addEventListener("close", stopSpeechAndContinuous);
+  elements.settingsDialog.addEventListener("cancel", (event) => { if (backupBusy) event.preventDefault(); });
   elements.ttsSettingsButton.addEventListener("click", () => {
     stopSpeechAndContinuous();
     try {
@@ -1804,6 +1972,9 @@ function bindEvents() {
   });
   elements.exportBackupButton.addEventListener("click", exportBackup);
   elements.backupFileInput.addEventListener("change", () => restoreBackup(elements.backupFileInput.files[0]));
+  elements.exportWordButton.addEventListener("click", () => openWordExport("all"));
+  elements.wordExportForm.addEventListener("change", updateWordExportSummary);
+  elements.wordExportForm.addEventListener("submit", exportWord);
   elements.reviewAgainButton.addEventListener("click", () => {
     const scope = session?.scope || state.activeAssignmentId;
     elements.completionDialog.close();

@@ -63,15 +63,19 @@ jobs:
           grep -F "android.intent.action.TTS_SERVICE" /tmp/english-recite-manifest.xml
           unzip -l "$APK" > /tmp/english-recite-apk-files.txt
           grep -F "assets/www/audio-store.js" /tmp/english-recite-apk-files.txt
+          grep -F "assets/www/word-export.js" /tmp/english-recite-apk-files.txt
+          grep -F "assets/www/backup.js" /tmp/english-recite-apk-files.txt
+          grep -F "assets/www/archive.js" /tmp/english-recite-apk-files.txt
+          grep -F "assets/www/file-download.js" /tmp/english-recite-apk-files.txt
 
       - name: Prepare download file
         run: |
           mkdir -p output
-          cp app/build/outputs/apk/debug/app-debug.apk output/English_Recite_v1.2.0.apk
+          cp app/build/outputs/apk/debug/app-debug.apk output/English_Recite_v1.3.0.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: English_Recite-Android
-          path: output/English_Recite_v1.2.0.apk
+          path: output/English_Recite_v1.3.0.apk
           if-no-files-found: error
           retention-days: 30

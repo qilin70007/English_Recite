@@ -234,6 +234,7 @@
               </div>
               <button class="button button-primary library-add-button" type="button" data-action="import" aria-label="新建背诵作业本">＋ 新建</button>
             </div>
+            <div class="library-export-row"><button class="button button-secondary" id="exportWordButton" type="button">未掌握内容导出 Word</button><span class="field-help">选择作业本和状态，生成可编辑、可打印的 .docx</span></div>
             <div class="library-list" id="libraryList"></div>
           </section>
         </main>
@@ -310,8 +311,10 @@
         </div>
 
         <section class="import-preview" id="importPreview" hidden>
-          <div class="section-heading compact"><h3 id="previewHeading">核对 0 条</h3><span class="muted">可直接修改下方内容，再确认保存</span></div>
+          <div class="section-heading compact preview-heading"><h3 id="previewHeading" aria-live="polite">核对 0 条</h3><button class="text-button" id="undoPreviewDeleteButton" type="button" hidden>撤销删除</button></div>
+          <p class="field-help">中英文分开修改，长内容自动展开。可上移、下移或删除单条，保存时保留这里的顺序。</p>
           <div class="preview-list" id="previewList"></div>
+          <button class="button button-secondary add-preview-button" id="addPreviewItemButton" type="button">＋ 新增一条</button>
         </section>
 
         <label class="field audio-upload-field">
@@ -377,10 +380,26 @@
         <div class="data-actions">
           <button class="button button-secondary" id="exportBackupButton" type="button">导出全部数据</button>
           <label class="button button-secondary" for="backupFileInput">恢复备份</label>
-          <input class="sr-only" id="backupFileInput" type="file" accept="application/json,.json" />
+          <input class="sr-only" id="backupFileInput" type="file" accept="application/zip,application/x-zip-compressed,application/json,.zip,.json" />
         </div>
-        <p class="field-help">进度默认保存在当前设备。JSON 备份包含作业和进度，但上传的 MP3 文件需在新设备重新添加。</p>
-        <div class="modal-actions"><small class="app-version">版本 1.2.0</small><span class="spacer"></span><button class="button button-primary" type="submit">保存设置</button></div>
+        <p class="field-help">完整备份为 ZIP，包含作业名称、顺序、背诵进度、MP3 原文件及其对应位置。请将备份存到手机“下载”或其他保留位置，恢复时直接选择 ZIP，无需解压。也支持旧 JSON；旧备份未包含的音频只能连接本机已有文件。</p>
+        <p class="backup-status" id="backupStatus" role="status" aria-live="polite"></p>
+        <div class="modal-actions"><small class="app-version">版本 1.3.0</small><span class="spacer"></span><button class="button button-primary" type="submit">保存设置</button></div>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="wordExportDialog">
+      <form method="dialog" class="modal-card small" id="wordExportForm">
+        <div class="modal-header"><div><p class="eyebrow">纸上复习</p><h2>未掌握内容导出 Word</h2></div><button class="icon-button" type="button" data-close-dialog="wordExportDialog" aria-label="关闭">×</button></div>
+        <label class="field"><span>选择作业本</span><select id="wordScopeSelect"><option value="all">所有作业本</option></select></label>
+        <fieldset class="word-status-options"><legend>选择要导出的状态</legend>
+          <label><input type="checkbox" name="wordStatus" value="unknown" checked />不认识</label>
+          <label><input type="checkbox" name="wordStatus" value="fuzzy" checked />模糊</label>
+          <label><input type="checkbox" name="wordStatus" value="new" />未标记</label>
+        </fieldset>
+        <p class="field-help">默认导出“不认识＋模糊”；刚添加但还没背过的内容可勾选“未标记”。已掌握内容不会导出。</p>
+        <p class="export-summary" id="wordExportSummary" role="status" aria-live="polite"></p>
+        <div class="modal-actions"><button class="button button-quiet" type="button" data-close-dialog="wordExportDialog">取消</button><button class="button button-primary" id="saveWordButton" type="submit">导出 .docx</button></div>
       </form>
     </dialog>
 
