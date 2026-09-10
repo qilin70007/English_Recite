@@ -106,6 +106,9 @@ label.button:focus-within {
   transform: translateY(0);
 }
 
+/* The main region receives focus on navigation; controls keep their own focus rings. */
+.workspace:focus { outline: none; }
+
 svg {
   display: block;
   flex-shrink: 0;

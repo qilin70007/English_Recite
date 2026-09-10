@@ -100,6 +100,7 @@ export async function runStudyChecks(browser, baseURL, shots, errors) {
     assert.ok(await page.evaluate((position) => Math.abs(window.media[0].playCalls.at(-1) - position) < 0.02, pausedAt), "resume starts at the paused time");
     assert.equal(await page.evaluate(() => window.media.length), 1);
     await page.locator("#continuousPlayButton").click();
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     await page.screenshot({ path: resolve(shots, "study-hidden-mobile.png"), fullPage: true, animations: "disabled" });
     await page.locator("#alwaysShowAnswerInput").check();
     await page.screenshot({ path: resolve(shots, "study-visible-mobile.png"), fullPage: true, animations: "disabled" });
