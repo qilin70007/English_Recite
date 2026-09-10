@@ -6,7 +6,8 @@ const xml = (value) => String(value ?? "").replace(/[\u0000-\u0008\u000b\u000c\u
 
 export function selectUnmastered(assignments, scope = "all", statuses = ["unknown", "fuzzy"]) {
   const allowed = new Set(statuses.filter((status) => Object.hasOwn(LABELS, status)));
-  return assignments.filter((assignment) => scope === "all" || assignment.id === scope)
+  const selected = new Set(Array.isArray(scope) ? scope : [scope]);
+  return assignments.filter((assignment) => scope === "all" || selected.has(assignment.id))
     .map((assignment) => ({ ...assignment, items: assignment.items.filter((item) => allowed.has(item.status)) }))
     .filter((assignment) => assignment.items.length);
 }

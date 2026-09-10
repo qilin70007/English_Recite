@@ -51,6 +51,22 @@ test("Word selects only requested unmastered statuses without changing notebook/
   await assert.rejects(createUnmasteredDocx(data.assignments, { statuses: [] }), /没有/);
 });
 
+test("Word combines selected notebooks in their displayed order, excluding unselected notebooks", async () => {
+  const books = fixture().assignments;
+  books.splice(1, 0, { id: "skip", title: "不要导出这本", items: [{ answer: "excluded notebook", status: "unknown" }] });
+  const selected = ["a", "b"];
+  assert.deepEqual(selectUnmastered(books, selected).map((book) => book.id), ["b", "a"]);
+  const docx = await createUnmasteredDocx(books, { scope: selected });
+  const entries = await openZip(docx);
+  const xml = await (await entries.get("word/document.xml").read()).text();
+  assert.match(xml, /第二本 &amp; 校对/);
+  assert.match(xml, /第一本/);
+  assert.doesNotMatch(xml, /不要导出这本|excluded notebook|mastered secret|unmarked/);
+  assert.ok(xml.indexOf("name &amp;") < xml.indexOf("hello"));
+  assert.deepEqual(selectUnmastered(books, []), []);
+  await assert.rejects(createUnmasteredDocx(books, { scope: [] }), /没有/);
+});
+
 test("backup restores exact MP3 bytes and original association, even with identical filenames", async () => {
   const data = fixture();
   const backup = await createBackup(data, readAudio);

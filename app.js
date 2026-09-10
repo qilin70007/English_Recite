@@ -13,6 +13,8 @@ import { deleteAudio, deleteAudios, getAudio, saveAudio } from "./audio-store.js
 import { createUnmasteredDocx, selectUnmastered } from "./word-export.js";
 import { audioLocations, createBackup, readBackup, stageRestore } from "./backup.js";
 import { downloadFile } from "./file-download.js";
+import { AssignmentPlayer } from "./assignment-player.js";
+import { icon, renderStaticIcons } from "./icons.js";
 
 const STORAGE_KEY = "englishRecite.state.v1";
 const OCR_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
@@ -77,14 +79,12 @@ const elements = {
   studyScopeSelect: $("#studyScopeSelect"),
   studyStatusFilter: $("#studyStatusFilter"),
   applyStudyFilterButton: $("#applyStudyFilterButton"),
-  studyModeSelect: $("#studyModeSelect"),
+  alwaysShowAnswerInput: $("#alwaysShowAnswerInput"),
   studyProgressBar: $("#studyProgressBar"),
   currentStatusPill: $("#currentStatusPill"),
   audioSourceBadge: $("#audioSourceBadge"),
-  promptLabel: $("#promptLabel"),
-  speakPromptButton: $("#speakPromptButton"),
+  promptArea: $("#promptArea"),
   promptText: $("#promptText"),
-  thinkHint: $("#thinkHint"),
   answerPanel: $("#answerPanel"),
   answerText: $("#answerText"),
   itemNote: $("#itemNote"),
@@ -154,7 +154,7 @@ const elements = {
   exportWordButton: $("#exportWordButton"),
   wordExportDialog: $("#wordExportDialog"),
   wordExportForm: $("#wordExportForm"),
-  wordScopeSelect: $("#wordScopeSelect"),
+  wordNotebookList: $("#wordNotebookList"),
   wordExportSummary: $("#wordExportSummary"),
   saveWordButton: $("#saveWordButton"),
   completionDialog: $("#completionDialog"),
@@ -180,6 +180,7 @@ function defaultState() {
       rate: 0.85,
       repeat: 2,
       autoSpeak: true,
+      alwaysShowAnswer: false,
     },
   };
 }
@@ -262,6 +263,11 @@ let bulkDraftItems = [];
 let bulkAssignmentAudioRemoveRequested = false;
 let deferredInstallPrompt = null;
 let markAdvanceTimer = null;
+const assignmentPlayer = new AssignmentPlayer({
+  getAudio,
+  onChange: updateContinuousButton,
+  onError: (error) => showToast(error.message || "整份 MP3 播放失败，请重试。", 4200),
+});
 
 function escapeHtml(value = "") {
   return String(value)
@@ -447,16 +453,18 @@ function renderLibrary() {
             <div class="mini-progress" aria-label="已掌握 ${summary.mastery}%"><span style="width:${summary.mastery}%"></span></div>
           </div>
           <div class="library-card-actions">
-            <button class="button button-secondary" type="button" data-assignment-action="focus" data-assignment-id="${escapeHtml(assignment.id)}" ${focusCount ? "" : "disabled"}>重点复习</button>
+            <div class="library-primary-actions">
             <button class="button button-primary" type="button" data-assignment-action="start" data-assignment-id="${escapeHtml(assignment.id)}">开始背诵</button>
+            <button class="button button-secondary" type="button" data-assignment-action="focus" data-assignment-id="${escapeHtml(assignment.id)}" ${focusCount ? "" : "disabled"}>重点复习</button>
             <button class="button button-secondary" type="button" data-assignment-action="edit" data-assignment-id="${escapeHtml(assignment.id)}">整体编辑</button>
-            <details class="assignment-more"><summary class="button button-quiet">更多 ▾</summary><div class="assignment-more-actions">
-            <button class="button button-quiet menu-button" type="button" data-assignment-action="move-up" data-assignment-id="${escapeHtml(assignment.id)}" ${assignmentIndex === 0 ? "disabled" : ""}>↑ 上移</button>
-            <button class="button button-quiet menu-button" type="button" data-assignment-action="move-down" data-assignment-id="${escapeHtml(assignment.id)}" ${assignmentIndex === state.assignments.length - 1 ? "disabled" : ""}>↓ 下移</button>
-            <button class="button button-quiet menu-button" type="button" data-assignment-action="word" data-assignment-id="${escapeHtml(assignment.id)}">未掌握导出 Word</button>
-            <button class="button button-quiet menu-button" type="button" data-assignment-action="export" data-assignment-id="${escapeHtml(assignment.id)}" title="仅导出文字与进度">导出作业 JSON</button>
-            <button class="button button-quiet menu-button danger-text" type="button" data-assignment-action="delete" data-assignment-id="${escapeHtml(assignment.id)}" title="删除作业">删除</button>
-            </div></details>
+            <button class="button button-secondary" type="button" data-assignment-action="word" data-assignment-id="${escapeHtml(assignment.id)}" title="导出未掌握内容，可选择多个作业本">导出 Word</button>
+            </div>
+            <div class="library-secondary-actions">
+            <button class="button button-quiet" type="button" data-assignment-action="move-up" data-assignment-id="${escapeHtml(assignment.id)}" ${assignmentIndex === 0 ? "disabled" : ""}>${icon("up")}上移</button>
+            <button class="button button-quiet" type="button" data-assignment-action="move-down" data-assignment-id="${escapeHtml(assignment.id)}" ${assignmentIndex === state.assignments.length - 1 ? "disabled" : ""}>${icon("down")}下移</button>
+            <button class="button button-quiet" type="button" data-assignment-action="export" data-assignment-id="${escapeHtml(assignment.id)}" title="仅导出文字与进度">导出 JSON</button>
+            <button class="button button-quiet danger-text" type="button" data-assignment-action="delete" data-assignment-id="${escapeHtml(assignment.id)}" title="删除作业">删除</button>
+            </div>
           </div>
         </article>`;
     })
@@ -538,27 +546,18 @@ function startStudy(filter = "all", scope = state.activeAssignmentId) {
     state.activeAssignmentId = normalizedScope;
     saveState();
   }
-  const sessionItems = entries.map((entry) => {
-    const assignment = state.assignments.find((item) => item.id === entry.assignmentId);
-    return assignment?.items.find((item) => item.id === entry.itemId);
-  }).filter(Boolean);
-  const withoutPrompt = sessionItems.filter((item) => !item.prompt).length;
-  const allText = assignmentsForScope(normalizedScope).every((assignment) => assignment.type === "text");
-  const mode = allText || withoutPrompt > sessionItems.length / 2 ? "follow" : "recall";
   session = {
     scope: normalizedScope,
     filter,
     entries,
     index: 0,
-    mode,
-    revealed: mode === "follow",
+    revealed: state.settings.alwaysShowAnswer === true,
   };
   populateStudyFilters(normalizedScope, filter);
-  elements.studyModeSelect.value = mode;
   showView("study");
   renderStudy();
 
-  if (mode === "follow" && state.settings.autoSpeak) {
+  if (session.revealed && state.settings.autoSpeak) {
     speakCurrent();
   }
 }
@@ -600,33 +599,20 @@ function renderStudy() {
     : assignment.title;
   elements.studyCounter.textContent = `${position} / ${count}`;
   elements.studyProgressBar.style.width = `${(position / count) * 100}%`;
-  elements.studyModeSelect.value = session.mode;
+  elements.alwaysShowAnswerInput.checked = state.settings.alwaysShowAnswer === true;
   populateStudyFilters(session.scope, session.filter);
 
   elements.currentStatusPill.textContent = STATUS_LABELS[item.status] || STATUS_LABELS[STATUS.NEW];
   elements.currentStatusPill.className = `status-pill status-${item.status || STATUS.NEW}`;
   elements.audioSourceBadge.hidden = !item.audio;
-  elements.speakPromptButton.hidden = !item.prompt;
   elements.speakButton.querySelector("span").textContent = item.audio ? "播放 MP3" : "朗读";
   elements.speakButton.setAttribute("aria-label", item.audio ? "播放当前内容的 MP3" : "朗读当前内容");
   $$(".status-button").forEach((button) => {
     button.classList.toggle("selected", button.dataset.status === item.status);
   });
 
-  if (session.mode === "follow") {
-    elements.promptLabel.textContent = item.prompt ? "中文提示" : "跟读练习";
-    elements.promptText.textContent = item.prompt || "听一遍，再清楚地跟读";
-    elements.thinkHint.textContent = "可点击英文或右上角朗读按钮再听一遍";
-    session.revealed = true;
-  } else if (item.prompt) {
-    elements.promptLabel.textContent = "中文提示";
-    elements.promptText.textContent = item.prompt;
-    elements.thinkHint.textContent = "先在心里或大声说出英文，再点开答案";
-  } else {
-    elements.promptLabel.textContent = "开头提示";
-    elements.promptText.textContent = buildCue(item.answer);
-    elements.thinkHint.textContent = "根据开头提示背出整句或整段，再查看全文";
-  }
+  elements.promptText.textContent = item.prompt || buildCue(item.answer);
+  elements.promptArea.hidden = !item.prompt && session.revealed;
 
   elements.answerText.textContent = item.answer || "（缺少英文内容，请点右上角编辑）";
   elements.answerPanel.classList.toggle("concealed", !session.revealed);
@@ -640,12 +626,12 @@ function renderStudy() {
 
 function revealAnswer() {
   if (!session || session.revealed) {
-    speakCurrent();
+    if (!assignmentPlayer.hasTrack) speakCurrent();
     return;
   }
   session.revealed = true;
   renderStudy();
-  if (state.settings.autoSpeak) speakCurrent();
+  if (state.settings.autoSpeak && !assignmentPlayer.hasTrack) speakCurrent();
 }
 
 function markCurrentItem(status) {
@@ -653,7 +639,7 @@ function markCurrentItem(status) {
   const item = getCurrentItem();
   const assignment = getSessionAssignment();
   if (!item || !assignment) return;
-  stopSpeechAndContinuous();
+  stopCardPlayback();
   item.status = status;
   item.lastReviewed = new Date().toISOString();
   item.reviewCount = (Number(item.reviewCount) || 0) + 1;
@@ -668,7 +654,7 @@ function markCurrentItem(status) {
 
 function moveItem(direction) {
   if (!session) return;
-  stopSpeechAndContinuous();
+  stopCardPlayback();
   const nextIndex = session.index + direction;
   if (nextIndex < 0) return;
   if (nextIndex >= session.entries.length) {
@@ -676,9 +662,9 @@ function moveItem(direction) {
     return;
   }
   session.index = nextIndex;
-  session.revealed = session.mode === "follow";
+  session.revealed = state.settings.alwaysShowAnswer === true;
   renderStudy();
-  if (session.mode === "follow" && state.settings.autoSpeak) speakCurrent();
+  if (session.revealed && state.settings.autoSpeak && !assignmentPlayer.hasTrack) speakCurrent();
 }
 
 function finishSession() {
@@ -779,7 +765,7 @@ function stopSpeech() {
   elements.speakButton.classList.remove("speaking");
 }
 
-function stopSpeechAndContinuous() {
+function stopCardPlayback() {
   if (markAdvanceTimer !== null) {
     clearTimeout(markAdvanceTimer);
     markAdvanceTimer = null;
@@ -787,6 +773,11 @@ function stopSpeechAndContinuous() {
   continuousPlaying = false;
   stopSpeech();
   updateContinuousButton();
+}
+
+function stopSpeechAndContinuous() {
+  stopCardPlayback();
+  assignmentPlayer.stop();
 }
 
 function speakText(text, onDone, options = {}) {
@@ -936,6 +927,8 @@ async function playStoredAudio(storageKey, options = {}) {
 function speakCurrent(onDone) {
   const item = getCurrentItem();
   if (!item) return;
+  // Explicit single-item playback pauses the notebook without losing its position.
+  if (["playing", "loading"].includes(assignmentPlayer.phase)) assignmentPlayer.pause();
   const text = item.answer || item.prompt;
   if (item.audio) {
     playStoredAudio(itemAudioKey(item.id), {
@@ -960,13 +953,18 @@ function canUseWholeAssignmentAudio() {
 }
 
 function updateContinuousButton() {
-  elements.continuousPlayButton?.classList.toggle("playing", continuousPlaying);
-  if (!elements.continuousPlayButton) return;
-  elements.continuousPlayButton.innerHTML = continuousPlaying
-    ? '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 7h10v10H7z"/></svg>停止朗读'
-    : canUseWholeAssignmentAudio()
-      ? '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8 6 10 6-10 6V6Z"/></svg>播放整份 MP3'
-      : '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8 6 10 6-10 6V6Z"/></svg>连续朗读';
+  const button = elements.continuousPlayButton;
+  if (!button) return;
+  const whole = canUseWholeAssignmentAudio();
+  const phase = whole && assignmentPlayer.key === assignmentAudioKey(session.scope) ? assignmentPlayer.phase : "idle";
+  const active = whole ? ["loading", "playing"].includes(phase) : continuousPlaying;
+  const label = whole
+    ? ({ loading: "停止播放", playing: "停止播放", paused: "继续播放", ended: "重播整份 MP3", error: "重试整份 MP3" }[phase] || "播放整份 MP3")
+    : continuousPlaying ? "停止朗读" : "连续朗读";
+  button.classList.toggle("playing", active);
+  button.dataset.audioState = phase;
+  button.setAttribute("aria-pressed", String(active));
+  button.innerHTML = `${icon(active ? whole ? "pause" : "stop" : "play")}<span>${label}</span>`;
 }
 
 function playContinuousItem() {
@@ -988,32 +986,16 @@ function playContinuousItem() {
 }
 
 function toggleContinuousPlay() {
-  if (continuousPlaying) {
-    stopSpeechAndContinuous();
+  if (canUseWholeAssignmentAudio()) {
+    stopCardPlayback();
+    const assignment = assignmentsForScope(session.scope)[0];
+    assignmentPlayer.toggle(assignmentAudioKey(assignment.id), state.settings.rate);
     return;
   }
+  if (continuousPlaying) { stopCardPlayback(); return; }
+  assignmentPlayer.stop();
   continuousPlaying = true;
   updateContinuousButton();
-  if (canUseWholeAssignmentAudio()) {
-    const assignment = assignmentsForScope(session.scope)[0];
-    session.revealed = true;
-    renderStudy();
-    playStoredAudio(assignmentAudioKey(assignment.id), {
-      repeat: 1,
-      onDone: () => {
-        stopSpeechAndContinuous();
-        showToast("整份作业 MP3 播放完毕");
-      },
-      onFallback: () => {
-        assignment.audio = null;
-        saveState();
-        renderAll();
-        showToast("整份 MP3 无法读取，已改为逐条朗读。", 3200);
-        playContinuousItem();
-      },
-    });
-    return;
-  }
   playContinuousItem();
 }
 
@@ -1137,8 +1119,8 @@ function renderImportPreview() {
   elements.previewList.innerHTML = parsedImportItems.map((item, index) => `
     <article class="preview-row" data-preview-index="${index}">
       <div class="preview-row-heading"><strong>第 ${index + 1} 条</strong><div class="preview-row-actions">
-        <button class="button button-secondary" type="button" data-preview-action="up" aria-label="上移第 ${index + 1} 条" ${index === 0 ? "disabled" : ""}>↑ 上移</button>
-        <button class="button button-secondary" type="button" data-preview-action="down" aria-label="下移第 ${index + 1} 条" ${index === parsedImportItems.length - 1 ? "disabled" : ""}>↓ 下移</button>
+        <button class="button button-secondary" type="button" data-preview-action="up" aria-label="上移第 ${index + 1} 条" ${index === 0 ? "disabled" : ""}>${icon("up")}上移</button>
+        <button class="button button-secondary" type="button" data-preview-action="down" aria-label="下移第 ${index + 1} 条" ${index === parsedImportItems.length - 1 ? "disabled" : ""}>${icon("down")}下移</button>
         <button class="button button-quiet danger-text" type="button" data-preview-action="delete" aria-label="删除第 ${index + 1} 条">删除</button>
       </div></div>
       <label class="field"><span>【中文】提示（可选）</span><textarea rows="3" data-preview-field="prompt" placeholder="例如：名称；不填也可以">${escapeHtml(item.prompt)}</textarea></label>
@@ -1437,8 +1419,8 @@ function renderBulkEditList() {
           <strong>第 ${index + 1} 条</strong>
           <span class="status-pill status-${escapeHtml(item.status)}">${escapeHtml(STATUS_LABELS[item.status] || STATUS_LABELS[STATUS.NEW])}</span>
           <span class="spacer"></span>
-          <button class="icon-button small" type="button" data-bulk-action="up" aria-label="上移" title="上移" ${index === 0 ? "disabled" : ""}>↑</button>
-          <button class="icon-button small" type="button" data-bulk-action="down" aria-label="下移" title="下移" ${index === bulkDraftItems.length - 1 ? "disabled" : ""}>↓</button>
+          <button class="icon-button small" type="button" data-bulk-action="up" aria-label="上移" title="上移" ${index === 0 ? "disabled" : ""}>${icon("up")}</button>
+          <button class="icon-button small" type="button" data-bulk-action="down" aria-label="下移" title="下移" ${index === bulkDraftItems.length - 1 ? "disabled" : ""}>${icon("down")}</button>
           <button class="text-button danger-text" type="button" data-bulk-action="delete">删除</button>
         </div>
         <div class="bulk-fields">
@@ -1750,7 +1732,7 @@ async function restoreBackup(file) {
 }
 
 function wordExportOptions() {
-  return { scope: elements.wordScopeSelect.value, statuses: $$("[name=wordStatus]:checked", elements.wordExportForm).map((input) => input.value) };
+  return { scope: $$("[name=wordNotebook]:checked", elements.wordExportForm).map((input) => input.value), statuses: $$("[name=wordStatus]:checked", elements.wordExportForm).map((input) => input.value) };
 }
 
 function updateWordExportSummary() {
@@ -1764,8 +1746,7 @@ function updateWordExportSummary() {
 function openWordExport(scope = "all") {
   stopSpeechAndContinuous();
   elements.wordExportForm.reset();
-  elements.wordScopeSelect.innerHTML = '<option value="all">所有作业本</option>' + state.assignments.map((assignment) => `<option value="${escapeHtml(assignment.id)}">${escapeHtml(assignment.title)}</option>`).join("");
-  elements.wordScopeSelect.value = scope;
+  elements.wordNotebookList.innerHTML = state.assignments.map((assignment) => `<label class="word-notebook-row"><input type="checkbox" name="wordNotebook" value="${escapeHtml(assignment.id)}" ${scope === "all" || scope === assignment.id ? "checked" : ""} /><span>${escapeHtml(assignment.title)}<small>共 ${assignment.items.length} 条</small></span></label>`).join("") || '<p class="field-help">还没有作业本，请先新建。</p>';
   updateWordExportSummary();
   elements.wordExportDialog.showModal();
 }
@@ -1776,7 +1757,7 @@ async function exportWord(event) {
   try {
     const options = wordExportOptions();
     const blob = await createUnmasteredDocx(state.assignments, options);
-    const title = options.scope === "all" ? "全部作业" : state.assignments.find((assignment) => assignment.id === options.scope)?.title || "作业";
+    const title = options.scope.length === 1 ? state.assignments.find((assignment) => assignment.id === options.scope[0])?.title || "作业" : `所选${options.scope.length}本作业`;
     const saved = await downloadFile(blob, `${title}-未掌握复习清单.docx`, (message) => { elements.wordExportSummary.textContent = message; });
     if (saved) { elements.wordExportDialog.close(); showToast("Word 复习清单已导出"); }
     else updateWordExportSummary();
@@ -1831,13 +1812,8 @@ function bindEvents() {
   elements.loadDemoButton.addEventListener("click", addDemoAssignment);
   elements.answerPanel.addEventListener("click", revealAnswer);
   elements.speakButton.addEventListener("click", () => {
-    if (elements.speakButton.classList.contains("speaking")) stopSpeechAndContinuous();
+    if (elements.speakButton.classList.contains("speaking")) stopCardPlayback();
     else speakCurrent();
-  });
-  elements.speakPromptButton.addEventListener("click", () => {
-    const item = getCurrentItem();
-    stopSpeechAndContinuous();
-    if (item?.prompt) speakText(item.prompt, undefined, { repeat: 1 });
   });
   elements.previousItemButton.addEventListener("click", () => moveItem(-1));
   elements.nextItemButton.addEventListener("click", () => moveItem(1));
@@ -1848,12 +1824,13 @@ function bindEvents() {
   });
   $$(".status-button").forEach((button) => button.addEventListener("click", () => markCurrentItem(button.dataset.status)));
 
-  elements.studyModeSelect.addEventListener("change", () => {
-    stopSpeechAndContinuous();
-    session.mode = elements.studyModeSelect.value;
-    session.revealed = session.mode === "follow";
+  elements.alwaysShowAnswerInput.addEventListener("change", () => {
+    stopCardPlayback();
+    state.settings.alwaysShowAnswer = elements.alwaysShowAnswerInput.checked;
+    saveState();
+    if (!session) return;
+    session.revealed = state.settings.alwaysShowAnswer;
     renderStudy();
-    if (session.mode === "follow" && state.settings.autoSpeak) speakCurrent();
   });
 
   $$('[data-import-tab]').forEach((button) => button.addEventListener("click", () => switchImportTab(button.dataset.importTab)));
@@ -1980,6 +1957,12 @@ function bindEvents() {
   elements.backupFileInput.addEventListener("change", () => restoreBackup(elements.backupFileInput.files[0]));
   elements.exportWordButton.addEventListener("click", () => openWordExport("all"));
   elements.wordExportForm.addEventListener("change", updateWordExportSummary);
+  elements.wordExportForm.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-word-select]");
+    if (!button) return;
+    $$("[name=wordNotebook]", elements.wordExportForm).forEach((input) => { input.checked = button.dataset.wordSelect === "all"; });
+    updateWordExportSummary();
+  });
   elements.wordExportForm.addEventListener("submit", exportWord);
   elements.reviewAgainButton.addEventListener("click", () => {
     const scope = session?.scope || state.activeAssignmentId;
@@ -2039,6 +2022,7 @@ function registerServiceWorker() {
   }
 }
 
+renderStaticIcons();
 bindEvents();
 renderAll();
 showView("home");

@@ -4,6 +4,7 @@ import { readFile, mkdir } from "node:fs/promises";
 import { resolve, extname } from "node:path";
 import { chromium } from "playwright";
 import { openZip } from "../archive.js";
+import { runStudyChecks } from "./ui-study.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const mime = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
@@ -107,9 +108,6 @@ try {
   await page.locator("#saveAssignmentButton").click();
   assert.equal((await state(page)).assignments.length, 2);
   assert.deepEqual((await state(page)).assignments[0].items.slice(0, 1).map(({ prompt, answer }) => ({ prompt, answer })), [{ prompt: "名称（名字）", answer: "name" }]);
-  await page.locator("#speakPromptButton").click();
-  await page.waitForFunction(() => window.ttsCalls.length >= 1);
-  assert.deepEqual(await page.evaluate(() => window.ttsCalls.map(({ text, lang, rate }) => ({ text, lang, rate }))), [{ text: "名称（名字）", lang: "zh-CN", rate: 1 }]);
   await page.locator("#editItemButton").click();
   await page.locator("#editAudioInput").setInputFiles({ name: "name.mp3", mimeType: "audio/mpeg", buffer: Buffer.from("ID3-audio-dispatch-fixture") });
   await page.locator('#editItemForm [type=submit]').click();
@@ -147,7 +145,6 @@ try {
   assert.equal(await page.locator("#chineseVoiceSelect").inputValue(), "test.engine|cn2");
   await page.locator('[data-close-dialog=settingsDialog]').click();
   await page.locator(".mobile-nav [data-view-target=library]").click();
-  await page.locator('.library-card').first().locator(".assignment-more summary").click();
   assert.equal(await page.locator('.library-card').first().locator('[data-assignment-action=move-down]').isVisible(), true);
   await page.locator('.library-card').first().locator('[data-assignment-action=move-down]').click();
   assert.equal((await state(page)).assignments[1].title, "格式与声音验证");
@@ -232,7 +229,8 @@ try {
   assert.equal(await page.evaluate(() => window.ttsCalls.length), 0, "restored MP3 retains priority");
 
   // Deleting every draft must not silently recreate the originally pasted rows.
-  await page.locator(".mobile-add").click();
+  await page.locator(".mobile-nav [data-view-target=library]").click();
+  await page.locator(".library-add-button").click();
   await page.locator("#contentInput").fill("【中文】测试｜【英文】test");
   await page.locator("#saveAssignmentButton").click();
   await page.locator('[data-preview-action=delete]').click();
@@ -244,6 +242,8 @@ try {
   await page.locator("#saveAssignmentButton").click();
   assert.equal((await state(page)).assignments[0].items[0].answer, "new entry");
   await context.close();
+
+  await runStudyChecks(browser, baseURL, shots, errors);
 
   // Browser fallback must also select Mandarin and use each segment's language/rate.
   const webContext = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: "block" });
@@ -270,7 +270,7 @@ try {
     { lang: "zh-CN", rate: 1, voice: "cn" }, { lang: "en-US", rate: 0.85, voice: "en" },
   ]);
   assert.deepEqual(errors, [], "no browser exceptions");
-  console.log("UI smoke passed: 360/390/720px layout, expanding/reorder/add/delete/undo preview, Word selection/download, MP3 backup across empty storage, restore rollback, MP3 priority, speech, progress and notebook editing.");
+  console.log("UI smoke passed: mobile/desktop icons and layout, persistent answer switch, real MP3 navigation/pause/resume, multi-notebook DOCX, preview editing, MP3 backup/restore rollback, priority and bilingual speech.");
 } finally {
   await browser.close();
   await new Promise((done) => server.close(done));
