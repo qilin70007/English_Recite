@@ -73,6 +73,14 @@ const elements = {
   libraryList: $("#libraryList"),
   startStudyButton: $("#startStudyButton"),
   focusStudyButton: $("#focusStudyButton"),
+  overviewHomeButton: $("#overviewHomeButton"),
+  overviewStudyButton: $("#overviewStudyButton"),
+  wholeAssignmentDialog: $("#wholeAssignmentDialog"),
+  wholeAssignmentTitle: $("#wholeAssignmentTitle"),
+  wholeAssignmentMeta: $("#wholeAssignmentMeta"),
+  wholeAssignmentList: $("#wholeAssignmentList"),
+  wholeAssignmentBody: $("#wholeAssignmentBody"),
+  wholeStudyButton: $("#wholeStudyButton"),
   loadDemoButton: $("#loadDemoButton"),
   studyAssignmentTitle: $("#studyAssignmentTitle"),
   studyCounter: $("#studyCounter"),
@@ -263,6 +271,8 @@ let bulkDraftItems = [];
 let bulkAssignmentAudioRemoveRequested = false;
 let deferredInstallPrompt = null;
 let markAdvanceTimer = null;
+let wholeAssignmentId = null;
+let wholeReturnToSession = false;
 const assignmentPlayer = new AssignmentPlayer({
   getAudio,
   onChange: updateContinuousButton,
@@ -451,6 +461,7 @@ function renderLibrary() {
               ${audioCount ? `<span>已配 ${audioCount} 个 MP3</span>` : ""}
             </div>
             <div class="mini-progress" aria-label="已掌握 ${summary.mastery}%"><span style="width:${summary.mastery}%"></span></div>
+            <button class="button button-quiet library-overview-button" type="button" data-assignment-action="overview" data-assignment-id="${escapeHtml(assignment.id)}">${icon("book")}整篇查看</button>
           </div>
           <div class="library-card-actions">
             <div class="library-primary-actions">
@@ -469,6 +480,27 @@ function renderLibrary() {
         </article>`;
     })
     .join("");
+}
+
+function openWholeAssignment(id) {
+  const assignment = state.assignments.find((item) => item.id === id);
+  if (!assignment) { showToast("请先选择一份背诵作业"); return; }
+  // Looking at the full text must not move the current card or interrupt its notebook MP3.
+  stopCardPlayback();
+  wholeAssignmentId = assignment.id;
+  wholeReturnToSession = currentView === "study" && getSessionAssignment()?.id === assignment.id;
+  elements.wholeAssignmentTitle.textContent = assignment.title;
+  elements.wholeAssignmentMeta.textContent = `共 ${assignment.items.length} 条 · 按作业本顺序`;
+  elements.wholeAssignmentList.innerHTML = assignment.items.map((item) => `
+    <li class="whole-entry" data-whole-item-id="${escapeHtml(item.id)}">
+      <p class="whole-english" lang="en">${escapeHtml(item.answer || "（缺少英文内容）")}</p>
+      ${item.prompt ? `<p class="whole-chinese" lang="zh-CN">${escapeHtml(item.prompt)}</p>` : ""}
+      ${item.note ? `<p class="whole-note">${escapeHtml(item.note)}</p>` : ""}
+    </li>`).join("");
+  elements.wholeStudyButton.textContent = wholeReturnToSession ? "返回背诵" : "开始背诵";
+  elements.wholeStudyButton.disabled = assignment.items.length === 0;
+  elements.wholeAssignmentDialog.showModal();
+  elements.wholeAssignmentBody.scrollTop = 0;
 }
 
 function renderAll() {
@@ -1581,6 +1613,10 @@ function downloadJson(data, filename) {
 function handleAssignmentAction(action, id) {
   const assignment = state.assignments.find((item) => item.id === id);
   if (!assignment) return;
+  if (action === "overview") {
+    openWholeAssignment(id);
+    return;
+  }
   if (action === "start" || action === "focus") {
     startStudy(action === "focus" ? "focus" : "all", id);
     return;
@@ -1809,6 +1845,14 @@ function bindEvents() {
 
   elements.startStudyButton.addEventListener("click", () => startStudy("all"));
   elements.focusStudyButton.addEventListener("click", () => startStudy("focus"));
+  elements.overviewHomeButton.addEventListener("click", () => openWholeAssignment(state.activeAssignmentId));
+  elements.overviewStudyButton.addEventListener("click", () => openWholeAssignment(getSessionAssignment()?.id));
+  elements.wholeStudyButton.addEventListener("click", () => {
+    const id = wholeAssignmentId;
+    const returnToSession = wholeReturnToSession;
+    elements.wholeAssignmentDialog.close();
+    if (!returnToSession) startStudy("all", id);
+  });
   elements.loadDemoButton.addEventListener("click", addDemoAssignment);
   elements.answerPanel.addEventListener("click", revealAnswer);
   elements.speakButton.addEventListener("click", () => {

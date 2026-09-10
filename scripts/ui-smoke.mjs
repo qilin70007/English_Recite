@@ -5,6 +5,7 @@ import { resolve, extname } from "node:path";
 import { chromium } from "playwright";
 import { openZip } from "../archive.js";
 import { runStudyChecks } from "./ui-study.mjs";
+import { runOverviewChecks } from "./ui-overview.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const mime = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
@@ -244,6 +245,7 @@ try {
   await context.close();
 
   await runStudyChecks(browser, baseURL, shots, errors);
+  await runOverviewChecks(browser, baseURL, shots, errors);
 
   // Browser fallback must also select Mandarin and use each segment's language/rate.
   const webContext = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: "block" });
@@ -270,7 +272,7 @@ try {
     { lang: "zh-CN", rate: 1, voice: "cn" }, { lang: "en-US", rate: 0.85, voice: "en" },
   ]);
   assert.deepEqual(errors, [], "no browser exceptions");
-  console.log("UI smoke passed: mobile/desktop icons and layout, persistent answer switch, real MP3 navigation/pause/resume, multi-notebook DOCX, preview editing, MP3 backup/restore rollback, priority and bilingual speech.");
+  console.log("UI smoke passed: complete notebook reading, imported/manual order, mobile/desktop layout, answer switch, real MP3 navigation/overview/pause/resume, multi-notebook DOCX, editing, MP3 backup/restore rollback and bilingual speech.");
 } finally {
   await browser.close();
   await new Promise((done) => server.close(done));

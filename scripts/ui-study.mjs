@@ -75,6 +75,12 @@ export async function runStudyChecks(browser, baseURL, shots, errors) {
     await page.locator("#continuousPlayButton").click();
     await page.waitForFunction(() => window.media[0]?.currentTime > 0.3 && document.querySelector("#continuousPlayButton").dataset.audioState === "playing");
     const beforeNext = await page.evaluate(() => window.media[0].currentTime);
+    await page.locator("#overviewStudyButton").click();
+    assert.equal(await page.locator(".whole-entry").count(), 4);
+    await page.waitForFunction((position) => window.media[0].currentTime > position + 0.1, beforeNext);
+    await page.locator("#wholeStudyButton").click();
+    assert.equal(await page.locator("#studyCounter").textContent(), "1 / 4");
+    assert.equal(await page.evaluate(() => window.media[0].pauseCalls), 0, "reading the full text must keep the notebook MP3 playing");
     await page.locator("#nextItemButton").click();
     await page.locator("#previousItemButton").click();
     await page.locator("#answerPanel").click();

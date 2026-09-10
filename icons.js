@@ -8,6 +8,7 @@ const paths = {
   up: '<path d="M12 19V5m-6 6 6-6 6 6"/>',
   down: '<path d="M12 5v14m-6-6 6 6 6-6"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  book: '<path d="M12 6c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1Zm0 0v14"/>',
   play: '<path d="m8 5 11 7-11 7V5Z"/>',
   pause: '<path d="M8 5v14M16 5v14"/>',
   stop: '<rect x="5" y="5" width="14" height="14" rx="2"/>',

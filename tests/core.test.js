@@ -12,7 +12,6 @@ import {
   isMandarinVoice,
   parseDelimited,
   parseImportedContent,
-  sortForReview,
   summarize,
 } from "../core.js";
 
@@ -105,14 +104,34 @@ test("deduplicates exact content while keeping the latest unique rows", () => {
   assert.equal(items.length, 2);
 });
 
-test("sorts unknown and fuzzy content before new and mastered content", () => {
-  const items = sortForReview([
+test("starting study preserves imported order despite mixed statuses and review dates", () => {
+  const imported = parseImportedContent("【中文】名称｜【英文】name\n【中文】科学｜【英文】science\n【中文】上课｜【英文】class\n【中文】学习｜【英文】learn");
+  const items = imported.map((item, index) => ({ ...item, id: item.answer,
+    status: [STATUS.MASTERED, STATUS.NEW, STATUS.FUZZY, STATUS.UNKNOWN][index],
+    lastReviewed: ["2026-09-12", "2026-09-11", "2026-09-10", "2026-09-09"][index],
+  }));
+  const assignments = [{ id: "daily", items }];
+  const before = JSON.stringify(assignments);
+  assert.deepEqual(buildStudyEntries(assignments, "daily").map((entry) => entry.itemId), ["name", "science", "class", "learn"]);
+  assert.equal(JSON.stringify(assignments), before, "building a queue cannot mutate saved contents");
+  items[0].status = STATUS.UNKNOWN;
+  items[3].status = STATUS.MASTERED;
+  items[0].lastReviewed = "2026-09-20";
+  assert.deepEqual(buildStudyEntries(assignments, "daily").map((entry) => entry.itemId), ["name", "science", "class", "learn"]);
+});
+
+test("status filters and all-notebook study preserve each notebook's saved order", () => {
+  const books = [{ id: "b", items: [
+    { id: "f1", status: STATUS.FUZZY, lastReviewed: "2026-09-12" },
     { id: "m", status: STATUS.MASTERED },
-    { id: "n", status: STATUS.NEW },
-    { id: "f", status: STATUS.FUZZY },
     { id: "u", status: STATUS.UNKNOWN },
-  ]);
-  assert.deepEqual(items.map((item) => item.id), ["u", "f", "n", "m"]);
+    { id: "f2", status: STATUS.FUZZY, lastReviewed: "2026-09-10" },
+  ] }, { id: "a", items: [{ id: "a1", status: STATUS.UNKNOWN }] }];
+  assert.deepEqual(buildStudyEntries(books, "b", "focus").map((entry) => entry.itemId), ["f1", "u", "f2"]);
+  assert.deepEqual(buildStudyEntries(books, "b", "fuzzy").map((entry) => entry.itemId), ["f1", "f2"]);
+  assert.deepEqual(buildStudyEntries(books).map((entry) => entry.itemId), ["f1", "m", "u", "f2", "a1"]);
+  [books[0].items[0], books[0].items[2]] = [books[0].items[2], books[0].items[0]];
+  assert.deepEqual(buildStudyEntries(books, "b", "focus").map((entry) => entry.itemId), ["u", "f1", "f2"], "manual sorting takes effect");
 });
 
 test("filters one or several review statuses", () => {

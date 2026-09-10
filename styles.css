@@ -549,6 +549,11 @@ svg {
   margin-top: 26px;
 }
 
+.hero-heading-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.hero-overview-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 6px 9px; border: 1px solid rgba(255, 255, 255, .25); border-radius: 10px; background: rgba(255, 255, 255, .08); color: #fff; cursor: pointer; font-size: 13px; }
+.hero-overview-button:hover { background: rgba(255, 255, 255, .18); }
+.library-overview-button { margin-top: 8px; min-height: 44px; padding: 6px 0; font-size: 14px; }
+
 .progress-ring {
   --progress: 0;
   position: relative;
@@ -1153,6 +1158,26 @@ svg {
   margin: 0 auto;
 }
 
+.whole-assignment-modal { width: min(900px, calc(100% - 28px)); }
+.whole-assignment-card { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: min(880px, calc(100vh - 28px)); height: min(880px, calc(100dvh - 28px)); overflow: hidden; border-radius: 24px; background: var(--surface); box-shadow: 0 30px 90px rgba(20, 43, 36, .3); }
+.whole-assignment-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 22px 28px 16px; border-bottom: 1px solid var(--line); }
+.whole-assignment-header > div { min-width: 0; }
+.whole-assignment-header .icon-button { flex-shrink: 0; }
+.whole-assignment-header h2 { margin: 4px 0; font-size: 24px; line-height: 1.4; overflow-wrap: anywhere; }
+.whole-assignment-header .muted { margin: 6px 0 0; font-size: 13px; }
+.whole-assignment-body { min-height: 0; padding: 24px 30px; overflow-y: auto; overscroll-behavior: contain; }
+.whole-assignment-body:focus { outline: none; }
+.whole-assignment-body:focus-visible { outline: 3px solid var(--primary-soft); outline-offset: -4px; }
+.whole-assignment-list { margin: 0; padding-left: 25px; }
+.whole-entry { padding: 0 0 20px 7px; }
+.whole-entry + .whole-entry { padding-top: 20px; border-top: 1px solid var(--line); }
+.whole-entry::marker { color: var(--muted); font-size: 14px; font-weight: 700; }
+.whole-entry p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.whole-english { margin: 0; font-size: 22px; line-height: 1.75; color: var(--ink); }
+.whole-chinese { margin: 7px 0 0; font-size: 16px; line-height: 1.7; color: var(--primary); }
+.whole-note { margin: 8px 0 0; font-size: 14px; line-height: 1.65; color: var(--muted); }
+.whole-assignment-footer { display: flex; justify-content: flex-end; padding: 14px 28px; border-top: 1px solid var(--line); background: var(--surface); }
+
 .edit-assignment-modal {
   width: min(1040px, calc(100% - 28px));
 }
@@ -1534,7 +1559,8 @@ svg {
   padding: 13px 0;
 }
 
-.study-preferences { display: flex; justify-content: flex-end; margin-top: 10px; }
+.study-preferences { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; margin-top: 10px; }
+.overview-study-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; }
 .answer-visibility-toggle { display: flex; align-items: center; gap: 12px; min-height: 44px; cursor: pointer; font-size: 14px; color: var(--primary); font-weight: 700; }
 .study-preferences + .study-progress { margin-top: 8px; }
 .word-notebooks { margin: 0 0 20px; padding: 0; border: 0; min-width: 0; }
@@ -1978,6 +2004,14 @@ input[role="switch"]:checked::after {
     padding: 23px 17px calc(24px + env(safe-area-inset-bottom));
     border-radius: 24px 24px 0 0;
   }
+
+  .whole-assignment-card { height: calc(100vh - 14px); height: calc(100dvh - 14px); border-radius: 24px 24px 0 0; }
+  .whole-assignment-header { padding: 20px 18px 15px; }
+  .whole-assignment-header h2 { font-size: 21px; }
+  .whole-assignment-body { padding: 22px 18px; }
+  .whole-english { font-size: 21px; }
+  .whole-assignment-footer { padding: 13px 18px calc(13px + env(safe-area-inset-bottom)); }
+  .whole-assignment-footer .button { width: 100%; }
 
   .form-grid.two-columns,
   .photo-grid,

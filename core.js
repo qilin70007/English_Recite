@@ -5,13 +5,6 @@ export const STATUS = Object.freeze({
   MASTERED: "mastered",
 });
 
-const STATUS_ORDER = {
-  [STATUS.UNKNOWN]: 0,
-  [STATUS.FUZZY]: 1,
-  [STATUS.NEW]: 2,
-  [STATUS.MASTERED]: 3,
-};
-
 export function normalizeText(value = "") {
   return String(value)
     .replace(/\r\n?/g, "\n")
@@ -286,16 +279,6 @@ export function deduplicateItems(items = []) {
   });
 }
 
-export function sortForReview(items = []) {
-  return [...items].sort((a, b) => {
-    const statusDifference = (STATUS_ORDER[a.status] ?? 2) - (STATUS_ORDER[b.status] ?? 2);
-    if (statusDifference !== 0) return statusDifference;
-    const reviewedA = a.lastReviewed ? new Date(a.lastReviewed).getTime() : 0;
-    const reviewedB = b.lastReviewed ? new Date(b.lastReviewed).getTime() : 0;
-    return reviewedA - reviewedB;
-  });
-}
-
 export function matchesStatusFilter(item, filter = "all") {
   const status = Object.values(STATUS).includes(item?.status) ? item.status : STATUS.NEW;
   if (filter === "focus") return status === STATUS.UNKNOWN || status === STATUS.FUZZY;
@@ -310,9 +293,11 @@ export function buildStudyEntries(assignments = [], scope = "all", filter = "all
   const selectedAssignments = scope === "all"
     ? assignments
     : assignments.filter((assignment) => assignment.id === scope);
-  return selectedAssignments.flatMap((assignment) => sortForReview(
-    (assignment.items || []).filter((item) => matchesStatusFilter(item, filter)),
-  ).map((item) => ({ assignmentId: assignment.id, itemId: item.id })));
+  // The saved item array is the import order, or the user's explicitly edited order.
+  // Filtering must not reorder it by status or last-reviewed time.
+  return selectedAssignments.flatMap((assignment) => (assignment.items || [])
+    .filter((item) => matchesStatusFilter(item, filter))
+    .map((item) => ({ assignmentId: assignment.id, itemId: item.id })));
 }
 
 export function detectSpeechLanguage(text = "") {

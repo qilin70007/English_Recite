@@ -84,7 +84,7 @@
             <div id="dashboardContent">
               <article class="hero-card">
                 <div class="hero-copy">
-                  <span class="type-chip" id="activeTypeChip">句子</span>
+                  <div class="hero-heading-row"><span class="type-chip" id="activeTypeChip">句子</span><button class="hero-overview-button" id="overviewHomeButton" type="button"><span data-icon="book" aria-hidden="true"></span>整篇查看</button></div>
                   <h2 id="activeAssignmentTitle">今日英语背诵</h2>
                   <p id="activeAssignmentMeta" class="muted">共 0 项</p>
                   <div class="hero-actions">
@@ -132,7 +132,7 @@
                 <ol class="guide-steps">
                   <li><span>1</span><div><strong>先看提示回忆</strong><p>不要急着翻答案，给大脑几秒检索时间。</p></div></li>
                   <li><span>2</span><div><strong>点开答案并跟读</strong><p>听标准发音，短语和句子按意群朗读。</p></div></li>
-                  <li><span>3</span><div><strong>如实标记状态</strong><p>“模糊”和“不认识”会自动排到重点复习前面。</p></div></li>
+                  <li><span>3</span><div><strong>如实标记状态</strong><p>点击“重点复习”，按原顺序再背模糊和不认识的内容。</p></div></li>
                 </ol>
               </section>
             </div>
@@ -161,7 +161,7 @@
               <button class="button button-secondary" id="applyStudyFilterButton" type="button">重新开始</button>
             </div>
 
-            <div class="study-preferences"><label class="answer-visibility-toggle"><span>始终显示英文</span><input id="alwaysShowAnswerInput" type="checkbox" role="switch" /></label></div>
+            <div class="study-preferences"><button class="text-button overview-study-button" id="overviewStudyButton" type="button"><span data-icon="book" aria-hidden="true"></span>整篇查看</button><label class="answer-visibility-toggle"><span>始终显示英文</span><input id="alwaysShowAnswerInput" type="checkbox" role="switch" /></label></div>
             <div class="study-progress" aria-hidden="true"><span id="studyProgressBar"></span></div>
 
             <div class="study-stage">
@@ -231,6 +231,17 @@
         <button type="button" data-view-target="library"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h6v16H4zM14 4h6v16h-6z"/></svg><span>作业本</span></button>
       </nav>
     </div>
+
+    <dialog class="modal whole-assignment-modal" id="wholeAssignmentDialog" aria-labelledby="wholeAssignmentTitle" aria-describedby="wholeAssignmentMeta">
+      <div class="whole-assignment-card">
+        <header class="whole-assignment-header">
+          <div><p class="eyebrow">整篇查看</p><h2 id="wholeAssignmentTitle"></h2><p class="muted" id="wholeAssignmentMeta"></p></div>
+          <button class="icon-button" type="button" data-close-dialog="wholeAssignmentDialog" aria-label="关闭整篇查看" autofocus><span data-icon="close" aria-hidden="true"></span></button>
+        </header>
+        <div class="whole-assignment-body" id="wholeAssignmentBody" tabindex="0" aria-label="完整背诵内容"><ol class="whole-assignment-list" id="wholeAssignmentList"></ol></div>
+        <footer class="whole-assignment-footer"><button class="button button-primary" id="wholeStudyButton" type="button">开始背诵</button></footer>
+      </div>
+    </dialog>
 
     <dialog class="modal import-modal" id="importDialog">
       <form method="dialog" class="modal-card" id="importForm">
@@ -369,7 +380,7 @@
         </div>
         <p class="field-help">完整备份为 ZIP，包含作业名称、顺序、背诵进度、MP3 原文件及其对应位置。请将备份存到手机“下载”或其他保留位置，恢复时直接选择 ZIP，无需解压。也支持旧 JSON；旧备份未包含的音频只能连接本机已有文件。</p>
         <p class="backup-status" id="backupStatus" role="status" aria-live="polite"></p>
-        <div class="modal-actions"><small class="app-version">版本 1.4.0</small><span class="spacer"></span><button class="button button-primary" type="submit">保存设置</button></div>
+        <div class="modal-actions"><small class="app-version">版本 1.5.0</small><span class="spacer"></span><button class="button button-primary" type="submit">保存设置</button></div>
       </form>
     </dialog>
 
