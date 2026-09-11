@@ -1,4 +1,4 @@
-// Offline ZIP32 containers, using the standard STORE method (no recompression).
+// Offline ZIP32: write STORE backups; optionally read DEFLATE entries for DOCX.
 // Blob slices keep MP3 backups out of one giant in-memory/base64 string.
 // Format: https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
 const encoder = new TextEncoder();
@@ -70,8 +70,8 @@ export async function createZip(files, type = "application/zip", onProgress = ()
   return new Blob([...parts, ...directory, end.bytes], { type });
 }
 
-export async function openZip(blob) {
-  const invalid = () => new Error("备份包不完整或格式不支持，请选择本软件导出的原始 ZIP 文件。");
+export async function openZip(blob, { allowDeflate = false, maxEntrySize = Infinity, invalidMessage } = {}) {
+  const invalid = () => new Error(invalidMessage || "备份包不完整或格式不支持，请选择本软件导出的原始 ZIP 文件。");
   if (blob.size < 22 || blob.size >= 0xffffffff) throw invalid();
   const tailStart = Math.max(0, blob.size - 65557);
   const tail = new DataView(await blob.slice(tailStart).arrayBuffer());
@@ -91,29 +91,55 @@ export async function openZip(blob) {
     const flags = view.getUint16(cursor + 8, true);
     const method = view.getUint16(cursor + 10, true);
     const crc = view.getUint32(cursor + 16, true);
+    const compressedLength = view.getUint32(cursor + 20, true);
     const length = view.getUint32(cursor + 24, true);
     const nameLength = view.getUint16(cursor + 28, true);
     const total = 46 + nameLength + view.getUint16(cursor + 30, true) + view.getUint16(cursor + 32, true);
     const position = view.getUint32(cursor + 42, true);
-    if (cursor + total > size || flags & 0x41 || method !== 0 || view.getUint16(cursor + 34, true) || length !== view.getUint32(cursor + 20, true) || position + 30 > start) throw invalid();
+    if (cursor + total > size || flags & 0x41 || (method !== 0 && !(allowDeflate && method === 8)) || view.getUint16(cursor + 34, true) || (method === 0 && length !== compressedLength) || position + 30 > start) throw invalid();
     const name = decoder.decode(data.subarray(cursor + 46, cursor + 46 + nameLength));
     if (!name || entries.has(name)) throw invalid();
     const local = new DataView(await blob.slice(position, position + 30).arrayBuffer());
     const localNameLength = local.getUint16(26, true);
     const bodyStart = position + 30 + localNameLength + local.getUint16(28, true);
-    if (local.getUint32(0, true) !== 0x04034b50 || local.getUint16(8, true) !== 0 || bodyStart + length > start) throw invalid();
+    if (local.getUint32(0, true) !== 0x04034b50 || local.getUint16(6, true) & 0x41 || local.getUint16(8, true) !== method || bodyStart + compressedLength > start) throw invalid();
     const localName = decoder.decode(await blob.slice(position + 30, position + 30 + localNameLength).arrayBuffer());
     if (localName !== name) throw invalid();
-    const body = blob.slice(bodyStart, bodyStart + length);
+    const body = blob.slice(bodyStart, bodyStart + compressedLength);
     entries.set(name, {
       size: length,
       async read() {
-        if (await crc32(body) !== crc) throw new Error(`备份中的 ${name} 已损坏，请重新导出备份。`);
-        return body;
+        if (length > maxEntrySize) throw new Error("文档正文过大，请按作业拆分后再导入。");
+        const content = method === 8 ? await inflateRaw(body, length) : body;
+        if (await crc32(content) !== crc) throw new Error(`压缩包中的 ${name} 已损坏，请重新保存文件。`);
+        return content;
       },
     });
     cursor += total;
   }
   if (cursor !== size) throw invalid();
   return entries;
+}
+
+async function inflateRaw(blob, expectedSize) {
+  let decompressor;
+  try { decompressor = new DecompressionStream("deflate-raw"); }
+  catch { throw new Error("当前浏览器内核暂不支持读取压缩 DOCX，请更新 Android System WebView 或浏览器后重试。"); }
+  const reader = blob.stream().pipeThrough(decompressor).getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > expectedSize) throw new Error("DOCX 数据长度异常，请重新保存文件后上传。");
+      chunks.push(value);
+    }
+    if (size !== expectedSize) throw new Error("DOCX 数据不完整，请重新保存文件后上传。");
+    return new Blob(chunks);
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  } finally { reader.releaseLock(); }
 }

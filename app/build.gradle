@@ -10,8 +10,8 @@ android {
         applicationId "com.qilin.englishrecite"
         minSdk 24
         targetSdk 36
-        versionCode 9
-        versionName "1.6.1"
+        versionCode 10
+        versionName "1.7.0"
     }
 
     buildTypes {
@@ -50,6 +50,7 @@ def syncWebAssets = tasks.register("syncWebAssets", Sync) {
         include "assignment-player.js"
         include "icons.js"
         include "archive.js"
+        include "docx-import.js"
         include "word-export.js"
         include "backup.js"
         include "file-download.js"

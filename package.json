@@ -1,13 +1,13 @@
 {
   "name": "english-recite",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "private": true,
   "type": "module",
   "description": "面向中学生的英语背诵辅助 PWA",
   "scripts": {
     "test": "node --test",
     "test:ui": "node scripts/ui-smoke.mjs",
-    "check": "node --check app.js && node --check icons.js && node --check assignment-player.js && node --check audio-store.js && node --check core.js && node --check archive.js && node --check word-export.js && node --check backup.js && node --check file-download.js && node --check sw.js && node --check scripts/ui-study.mjs && node --check scripts/ui-overview.mjs && node --check scripts/ui-smoke.mjs"
+    "check": "node --check app.js && node --check icons.js && node --check assignment-player.js && node --check audio-store.js && node --check core.js && node --check archive.js && node --check docx-import.js && node --check word-export.js && node --check backup.js && node --check file-download.js && node --check sw.js && node --check scripts/ui-study.mjs && node --check scripts/ui-overview.mjs && node --check scripts/ui-import-audio.mjs && node --check scripts/ui-smoke.mjs"
   },
   "engines": {
     "node": ">=20"

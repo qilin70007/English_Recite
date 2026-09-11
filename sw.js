@@ -1,4 +1,4 @@
-const CACHE_NAME = "english-recite-v11";
+const CACHE_NAME = "english-recite-v12";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -8,6 +8,7 @@ const APP_SHELL = [
   "./assignment-player.js",
   "./icons.js",
   "./archive.js",
+  "./docx-import.js",
   "./word-export.js",
   "./backup.js",
   "./file-download.js",

@@ -72,7 +72,7 @@
                 <span class="sound-wave" data-icon="sound"></span>
               </div>
               <h2>先添加今天的背诵内容</h2>
-              <p>可粘贴文字，上传 TXT、CSV、JSON，或拍照识别教材与作业纸。</p>
+              <p>可粘贴文字，上传 DOCX、TXT、CSV、JSON，或拍照识别教材与作业纸。</p>
               <div class="empty-actions">
                 <button class="button button-primary" type="button" data-view-target="library">前往作业本</button>
                 <button class="button button-secondary" id="loadDemoButton" type="button">看看图片中的示例</button>
@@ -267,10 +267,11 @@
         <section class="import-panel file-panel" data-import-panel="file" hidden>
           <label class="drop-zone" for="contentFileInput">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 16V4m-5 5 5-5 5 5M4 20h16"/></svg>
-            <strong>选择 TXT、CSV、TSV 或 JSON 文件</strong>
+            <strong>选择 DOCX、TXT、CSV、TSV 或 JSON 文件</strong>
             <span id="selectedFileName">文件内容只在你的浏览器中处理</span>
           </label>
-          <input class="sr-only" id="contentFileInput" type="file" accept=".txt,.csv,.tsv,.json,text/plain,text/csv,application/json" />
+          <input class="sr-only" id="contentFileInput" type="file" accept=".docx,.txt,.csv,.tsv,.json,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/csv,text/tab-separated-values,application/json" />
+          <p class="field-help">Word 支持 .docx 的正文、列表和中英表格，导入后先核对。图片中的文字请用“拍照识别”。</p>
         </section>
 
         <section class="import-panel photo-panel" data-import-panel="photo" hidden>
@@ -372,7 +373,7 @@
         </div>
         <p class="field-help">完整备份为 ZIP，包含作业名称、顺序、背诵进度、MP3 原文件及其对应位置。请将备份存到手机“下载”或其他保留位置，恢复时直接选择 ZIP，无需解压。也支持旧 JSON；旧备份未包含的音频只能连接本机已有文件。</p>
         <p class="backup-status" id="backupStatus" role="status" aria-live="polite"></p>
-        <div class="modal-actions"><small class="app-version">版本 1.6.1</small><span class="spacer"></span><button class="button button-primary" type="submit">保存设置</button></div>
+        <div class="modal-actions"><small class="app-version">版本 1.7.0</small><span class="spacer"></span><button class="button button-primary" type="submit">保存设置</button></div>
       </form>
     </dialog>
 

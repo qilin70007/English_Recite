@@ -15,6 +15,7 @@ import { audioLocations, createBackup, readBackup, stageRestore } from "./backup
 import { downloadFile } from "./file-download.js";
 import { AssignmentPlayer } from "./assignment-player.js";
 import { icon, renderStaticIcons } from "./icons.js";
+import { readDocxText } from "./docx-import.js";
 
 const STORAGE_KEY = "englishRecite.state.v1";
 const OCR_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
@@ -255,12 +256,16 @@ let importPreviewSignature = "";
 let deletedPreviewItem = null;
 let backupBusy = false;
 let importFileFormat = "auto";
+let contentFileReadId = 0;
+let readingContentFile = false;
 let selectedPhotoFile = null;
 let photoObjectUrl = "";
 let toastTimer = null;
 let saveTimer = null;
 let speechRunId = 0;
 let continuousPlaying = false;
+let continuousRunId = 0;
+let continuousTimer = null;
 let nativeTtsCleanup = null;
 let activeAudio = null;
 let activeAudioUrl = "";
@@ -810,6 +815,9 @@ function stopCardPlayback() {
     markAdvanceTimer = null;
   }
   continuousPlaying = false;
+  continuousRunId += 1;
+  clearTimeout(continuousTimer);
+  continuousTimer = null;
   stopSpeech();
   updateContinuousButton();
 }
@@ -1006,12 +1014,19 @@ function updateContinuousButton() {
   button.innerHTML = `${icon(active ? whole ? "pause" : "stop" : "play")}<span>${label}</span>`;
 }
 
-function playContinuousItem() {
-  if (!continuousPlaying || !session) return;
+function playContinuousItem(runId) {
+  const isCurrent = () => continuousPlaying && session && runId === continuousRunId;
+  if (!isCurrent()) return;
+  const item = getCurrentItem();
+  if (!item) { stopCardPlayback(); return; }
   session.revealed = true;
   renderStudy();
-  speakCurrent(() => {
-    if (!continuousPlaying || !session) return;
+  keepStudyCardInView();
+  const readAnswer = () => {
+    if (isCurrent()) speakCurrent(finishItem);
+  };
+  const finishItem = () => {
+    if (!isCurrent()) return;
     if (session.index >= session.entries.length - 1) {
       stopSpeechAndContinuous();
       showToast(session.scope === "all" ? "所选内容朗读完毕" : "整份作业朗读完毕");
@@ -1020,8 +1035,15 @@ function playContinuousItem() {
     session.index += 1;
     session.revealed = true;
     renderStudy();
-    window.setTimeout(playContinuousItem, 420);
-  });
+    keepStudyCardInView();
+    continuousTimer = window.setTimeout(() => playContinuousItem(runId), 420);
+  };
+  // Read the prompt once, then let the answer retain its MP3 priority/repeat setting.
+  if (item.prompt?.trim() && item.answer?.trim()) {
+    speakText(item.prompt, readAnswer, { repeat: 1 });
+  } else {
+    readAnswer();
+  }
 }
 
 function toggleContinuousPlay() {
@@ -1034,8 +1056,9 @@ function toggleContinuousPlay() {
   if (continuousPlaying) { stopCardPlayback(); return; }
   assignmentPlayer.stop();
   continuousPlaying = true;
+  const runId = ++continuousRunId;
   updateContinuousButton();
-  playContinuousItem();
+  playContinuousItem(runId);
 }
 
 function populateVoices(useSavedSettings = false) {
@@ -1062,6 +1085,9 @@ function populateVoices(useSavedSettings = false) {
 }
 
 function openImportDialog() {
+  contentFileReadId += 1;
+  readingContentFile = false;
+  elements.saveAssignmentButton.disabled = false;
   parsedImportItems = [];
   importPreviewSignature = "";
   elements.saveAssignmentButton.textContent = "下一步：核对内容";
@@ -1193,15 +1219,31 @@ function handlePreviewAction(event) {
 
 async function readContentFile(file) {
   if (!file) return;
+  const readId = ++contentFileReadId;
   const extension = file.name.split(".").pop()?.toLowerCase();
-  importFileFormat = extension === "csv" ? "csv" : extension === "tsv" ? "tsv" : extension === "json" ? "json" : "auto";
+  readingContentFile = true;
+  elements.saveAssignmentButton.disabled = true;
+  invalidateImportPreview();
+  elements.selectedFileName.textContent = `正在读取 ${file.name}…`;
   try {
-    elements.contentInput.value = await file.text();
+    if (extension === "doc") throw new Error("请先用 Word 或 WPS 将 .doc 另存为 .docx，再上传。");
+    if (!["txt", "csv", "tsv", "json", "docx"].includes(extension)) throw new Error("请选择 DOCX、TXT、CSV、TSV 或 JSON 文件。");
+    const text = extension === "docx" ? await readDocxText(file) : await file.text();
+    if (readId !== contentFileReadId) return;
+    importFileFormat = ["csv", "tsv", "json"].includes(extension) ? extension : "auto";
+    elements.contentInput.value = text;
     elements.selectedFileName.textContent = `${file.name} · ${(file.size / 1024).toFixed(1)} KB`;
     parseImportPreview();
-  } catch {
-    elements.importError.textContent = "无法读取这个文件，请换用 UTF-8 编码的文本文件。";
+  } catch (error) {
+    if (readId !== contentFileReadId) return;
+    elements.selectedFileName.textContent = `${file.name} · 读取失败`;
+    elements.importError.textContent = error.message || "无法读取这个文件，请重新选择。";
     elements.importError.hidden = false;
+  } finally {
+    if (readId === contentFileReadId) {
+      readingContentFile = false;
+      elements.saveAssignmentButton.disabled = false;
+    }
   }
 }
 
@@ -1274,6 +1316,7 @@ async function recognizePhoto() {
 
 async function saveImportedAssignment(event) {
   event.preventDefault();
+  if (readingContentFile) return;
   const title = elements.assignmentTitleInput.value.trim();
   if (!title) {
     elements.assignmentTitleInput.focus();
@@ -1864,7 +1907,7 @@ function bindEvents() {
   elements.answerPanel.addEventListener("click", revealAnswer);
   elements.speakButton.addEventListener("click", () => {
     if (elements.speakButton.classList.contains("speaking")) stopCardPlayback();
-    else speakCurrent();
+    else { stopCardPlayback(); speakCurrent(); }
   });
   elements.previousItemButton.addEventListener("click", () => moveItem(-1));
   elements.nextItemButton.addEventListener("click", () => moveItem(1));
@@ -2022,6 +2065,9 @@ function bindEvents() {
   });
 
   elements.importDialog.addEventListener("close", () => {
+    contentFileReadId += 1;
+    readingContentFile = false;
+    elements.saveAssignmentButton.disabled = false;
     if (photoObjectUrl) URL.revokeObjectURL(photoObjectUrl);
     photoObjectUrl = "";
   });
