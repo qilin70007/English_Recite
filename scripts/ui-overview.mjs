@@ -89,6 +89,11 @@ export async function runOverviewChecks(browser, baseURL, shots, errors) {
     await page.locator("#wholeStudyButton").click();
     assert.equal(await page.locator("#studyScopeSelect").inputValue(), "reading", "start from overview selects that notebook");
     assert.equal(await page.locator("#answerText").textContent(), longText);
+    await page.locator("#alwaysShowAnswerInput").check();
+    await page.locator("#nextItemButton").click();
+    assert.equal(await page.locator("#answerText").textContent(), "This is the final entry.");
+    assert.ok(await page.locator("#reciteCard").evaluate((card) => card.getBoundingClientRect().top >= document.querySelector(".topbar").getBoundingClientRect().bottom), "after a long text, the next card returns to the viewing area");
+    await page.locator("#alwaysShowAnswerInput").uncheck();
 
     // Explicit manual reordering remains authoritative in both views and after reload.
     await page.locator(".mobile-nav [data-view-target=library]").click();

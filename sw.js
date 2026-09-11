@@ -1,4 +1,4 @@
-const CACHE_NAME = "english-recite-v9";
+const CACHE_NAME = "english-recite-v10";
 const APP_SHELL = [
   "./",
   "./index.html",

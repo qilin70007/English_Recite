@@ -265,7 +265,7 @@ try {
   const webPage = await webContext.newPage();
   webPage.on("pageerror", (error) => errors.push(error.message));
   await webPage.goto(baseURL);
-  await webPage.locator("#settingsButton").click();
+  await webPage.locator("#desktopSettingsButton").click();
   await webPage.locator("#testSpeechButton").click();
   await webPage.waitForFunction(() => window.ttsCalls.length === 2);
   assert.deepEqual(await webPage.evaluate(() => window.ttsCalls.map(({ lang, rate, voice }) => ({ lang, rate, voice }))), [

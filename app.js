@@ -145,7 +145,6 @@ const elements = {
   addBulkItemButton: $("#addBulkItemButton"),
   bulkEditList: $("#bulkEditList"),
   saveAssignmentEditButton: $("#saveAssignmentEditButton"),
-  settingsButton: $("#settingsButton"),
   settingsDialog: $("#settingsDialog"),
   settingsForm: $("#settingsForm"),
   voiceSelect: $("#voiceSelect"),
@@ -377,7 +376,7 @@ function showView(name) {
   });
   document.body.classList.toggle("is-studying", name === "study");
   $("#mainContent")?.focus({ preventScroll: true });
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  window.scrollTo({ top: 0, behavior: name === "study" ? "auto" : "smooth" });
 }
 
 function renderSideAssignments() {
@@ -696,7 +695,15 @@ function moveItem(direction) {
   session.index = nextIndex;
   session.revealed = state.settings.alwaysShowAnswer === true;
   renderStudy();
+  keepStudyCardInView();
   if (session.revealed && state.settings.autoSpeak && !assignmentPlayer.hasTrack) speakCurrent();
+}
+
+function keepStudyCardInView() {
+  // A long previous entry can leave the next word above the viewport.
+  const card = $("#reciteCard");
+  const headerBottom = $(".topbar").getBoundingClientRect().bottom;
+  if (card.getBoundingClientRect().top < headerBottom) card.scrollIntoView({ block: "start", behavior: "auto" });
 }
 
 function finishSession() {
@@ -1977,7 +1984,7 @@ function bindEvents() {
     elements.editAssignmentAudioName.textContent = "保存后将移除整份 MP3";
     elements.removeAssignmentAudioButton.hidden = true;
   });
-  elements.settingsButton.addEventListener("click", openSettings);
+  $$('[data-action="settings"]').forEach((button) => button.addEventListener("click", openSettings));
   elements.settingsForm.addEventListener("submit", saveSettings);
   elements.testSpeechButton.addEventListener("click", () => {
     speakText("名称。名词。今天我们一起学习英语。I am interested in science.", () => {

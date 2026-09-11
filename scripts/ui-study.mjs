@@ -46,10 +46,10 @@ export async function runStudyChecks(browser, baseURL, shots, errors) {
     });
     await page.reload();
     assert.equal(await page.locator('#homeView [data-action="import"], .mobile-add, .sidebar [data-action="import"]').count(), 0);
-    assert.equal(await page.locator('.mobile-nav button').count(), 2);
+    assert.equal(await page.locator('.mobile-nav button').count(), 3);
     for (const width of [360, 390, 720, 1280]) {
       await page.setViewportSize({ width, height: 900 });
-      const offsets = await page.locator('.stat-icon, #settingsButton').evaluateAll((nodes) => nodes.map((element) => {
+      const offsets = await page.locator('.stat-icon, [data-action=settings]:visible [data-icon]').evaluateAll((nodes) => nodes.map((element) => {
         const box = element.getBoundingClientRect(), glyph = element.querySelector("svg").getBoundingClientRect();
         return { x: Math.abs(box.x + box.width / 2 - glyph.x - glyph.width / 2), y: Math.abs(box.y + box.height / 2 - glyph.y - glyph.height / 2) };
       }));
@@ -59,6 +59,39 @@ export async function runStudyChecks(browser, baseURL, shots, errors) {
     }
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator("#startStudyButton").click();
+    // Check the actual viewing area, including a short 320px Android screen.
+    for (const viewport of [{ width: 320, height: 640 }, { width: 360, height: 640 }, { width: 390, height: 844 }, { width: 720, height: 900 }, { width: 1280, height: 900 }]) {
+      await page.setViewportSize(viewport);
+      await page.evaluate(() => { document.getAnimations().forEach((animation) => animation.finish()); window.scrollTo(0, 0); });
+      const layout = await page.evaluate(() => {
+        const box = (selector) => {
+          const rect = document.querySelector(selector).getBoundingClientRect();
+          return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, width: rect.width, height: rect.height, centerX: rect.x + rect.width / 2, centerY: rect.y + rect.height / 2 };
+        };
+        return {
+          title: box(".brand strong"), topbar: box(".topbar"), card: box("#reciteCard"),
+          overview: box("#overviewStudyButton"), counter: box("#studyCounter"), toggle: box(".answer-visibility-toggle"),
+          next: box("#nextItemButton"), filters: box(".study-filter-bar"), nav: box(".mobile-nav"),
+          noHorizontalOverflow: document.documentElement.scrollWidth <= innerWidth,
+        };
+      });
+      assert.ok(Math.abs(layout.title.centerX - viewport.width / 2) <= 0.6, "app title is centered on the screen");
+      assert.ok(layout.card.top >= layout.topbar.bottom && layout.card.top <= 160, `card starts in the main viewing area at ${viewport.width}px`);
+      assert.ok(layout.overview.top >= layout.card.bottom && layout.overview.top - layout.card.bottom <= 12, "overview sits immediately below the card");
+      assert.ok(layout.counter.left >= layout.overview.right + 4 && Math.abs(layout.counter.centerY - layout.overview.centerY) <= 1, "number progress is beside overview");
+      assert.ok(Math.abs(layout.toggle.centerY - layout.overview.centerY) <= 1, "English switch shares the row below the card");
+      assert.ok(layout.filters.top >= layout.next.bottom + 16, "scope and restart controls follow the main study controls");
+      assert.ok(layout.noHorizontalOverflow, `no horizontal overflow at ${viewport.width}px`);
+      if (viewport.width <= 720) {
+        assert.ok(layout.next.bottom <= layout.nav.top, `word and navigation fit above the bottom bar at ${viewport.width}×${viewport.height}: ${JSON.stringify(layout)}`);
+        assert.ok(await page.locator("#settingsButton").evaluate((button) => button.getBoundingClientRect().bottom <= innerHeight && button.getBoundingClientRect().top >= innerHeight - 80), "settings is in bottom navigation");
+      }
+      await page.screenshot({ path: resolve(shots, `study-focus-${viewport.width}.png`), animations: "disabled" });
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator("#settingsButton").click();
+    await page.locator('[data-close-dialog=settingsDialog]').click();
+    assert.equal(await page.locator("#studyCounter").textContent(), "1 / 4", "bottom settings preserves the current card");
     assert.equal(await page.locator("#alwaysShowAnswerInput").isChecked(), false, "default hides each new answer");
     assert.equal(await page.locator("#answerPanel").getAttribute("aria-expanded"), "false");
     assert.equal(await page.locator("#promptLabel, #speakPromptButton, #thinkHint, .self-check > p").count(), 0);
@@ -107,9 +140,9 @@ export async function runStudyChecks(browser, baseURL, shots, errors) {
     assert.equal(await page.evaluate(() => window.media.length), 1);
     await page.locator("#continuousPlayButton").click();
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
-    await page.screenshot({ path: resolve(shots, "study-hidden-mobile.png"), fullPage: true, animations: "disabled" });
+    await page.screenshot({ path: resolve(shots, "study-hidden-mobile.png"), animations: "disabled" });
     await page.locator("#alwaysShowAnswerInput").check();
-    await page.screenshot({ path: resolve(shots, "study-visible-mobile.png"), fullPage: true, animations: "disabled" });
+    await page.screenshot({ path: resolve(shots, "study-visible-mobile.png"), animations: "disabled" });
     await page.reload();
     await page.locator("#startStudyButton").click();
     assert.equal(await page.locator("#alwaysShowAnswerInput").isChecked(), true, "answer preference survives reload");
