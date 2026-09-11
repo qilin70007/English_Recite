@@ -71,16 +71,18 @@ export async function runStudyChecks(browser, baseURL, shots, errors) {
         return {
           title: box(".brand strong"), topbar: box(".topbar"), card: box("#reciteCard"),
           overview: box("#overviewStudyButton"), counter: box("#studyCounter"), toggle: box(".answer-visibility-toggle"),
+          status: box("#currentStatusPill"), edit: box("#editItemButton"), speak: box("#speakButton"), preferences: box(".study-preferences"),
           next: box("#nextItemButton"), filters: box(".study-filter-bar"), nav: box(".mobile-nav"),
           noHorizontalOverflow: document.documentElement.scrollWidth <= innerWidth,
         };
       });
       assert.ok(Math.abs(layout.title.centerX - viewport.width / 2) <= 0.6, "app title is centered on the screen");
       assert.ok(layout.card.top >= layout.topbar.bottom && layout.card.top <= 160, `card starts in the main viewing area at ${viewport.width}px`);
-      assert.ok(layout.overview.top >= layout.card.bottom && layout.overview.top - layout.card.bottom <= 12, "overview sits immediately below the card");
-      assert.ok(layout.counter.left >= layout.overview.right + 4 && Math.abs(layout.counter.centerY - layout.overview.centerY) <= 1, "number progress is beside overview");
-      assert.ok(Math.abs(layout.toggle.centerY - layout.overview.centerY) <= 1, "English switch shares the row below the card");
-      assert.ok(layout.filters.top >= layout.next.bottom + 16, "scope and restart controls follow the main study controls");
+      assert.ok(layout.counter.top >= layout.card.top && Math.abs(layout.counter.centerX - layout.card.centerX) <= 0.6, "number progress is centered within the card");
+      assert.ok(Math.abs(layout.counter.centerY - layout.status.centerY) <= 1 && Math.abs(layout.counter.centerY - layout.edit.centerY) <= 1, "status, progress and edit share the card's top row");
+      assert.ok(layout.preferences.top >= layout.next.bottom + 16 && layout.filters.top - layout.preferences.bottom >= 0 && layout.filters.top - layout.preferences.bottom <= 12, "overview and reading controls sit immediately above scope filters, after navigation");
+      assert.ok(layout.toggle.left >= layout.overview.right + 4 && layout.toggle.left - layout.overview.right <= 16 && Math.abs(layout.toggle.centerY - layout.overview.centerY) <= 1, "English switch sits beside overview instead of the far right");
+      assert.ok(layout.speak.left >= layout.toggle.right + 4 && Math.abs(layout.speak.centerY - layout.toggle.centerY) <= 1, "read button sits to the right of the English switch");
       assert.ok(layout.noHorizontalOverflow, `no horizontal overflow at ${viewport.width}px`);
       if (viewport.width <= 720) {
         assert.ok(layout.next.bottom <= layout.nav.top, `word and navigation fit above the bottom bar at ${viewport.width}×${viewport.height}: ${JSON.stringify(layout)}`);
@@ -95,6 +97,7 @@ export async function runStudyChecks(browser, baseURL, shots, errors) {
     assert.equal(await page.locator("#alwaysShowAnswerInput").isChecked(), false, "default hides each new answer");
     assert.equal(await page.locator("#answerPanel").getAttribute("aria-expanded"), "false");
     assert.equal(await page.locator("#promptLabel, #speakPromptButton, #thinkHint, .self-check > p").count(), 0);
+    assert.equal(await page.locator("#reciteCard #speakButton").count(), 0, "read button has moved out of the card");
     await page.locator("#answerPanel").click();
     assert.equal(await page.locator("#answerPanel").getAttribute("aria-expanded"), "true");
     await page.locator("#nextItemButton").click();

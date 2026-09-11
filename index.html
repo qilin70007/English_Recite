@@ -145,15 +145,10 @@
                     <span class="status-pill status-new" id="currentStatusPill">未标记</span>
                     <span class="audio-source-badge" id="audioSourceBadge" hidden>MP3</span>
                   </div>
-                  <div class="card-audio-actions">
-                    <button class="sound-button" id="speakButton" type="button" aria-label="朗读当前英文">
-                      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6L8 10H4Zm12-1a4 4 0 0 1 0 6m2-9a8 8 0 0 1 0 12"/></svg>
-                      <span>朗读</span>
-                    </button>
-                    <button class="icon-button" id="editItemButton" type="button" aria-label="编辑当前内容" title="编辑当前内容">
-                      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4ZM13.5 6.5l4 4"/></svg>
-                    </button>
-                  </div>
+                  <span class="study-counter" id="studyCounter" aria-live="polite" aria-atomic="true">1 / 1</span>
+                  <button class="icon-button" id="editItemButton" type="button" aria-label="编辑当前内容" title="编辑当前内容">
+                    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4ZM13.5 6.5l4 4"/></svg>
+                  </button>
                 </div>
 
                 <div class="prompt-area" id="promptArea">
@@ -171,10 +166,6 @@
                 <p class="card-note" id="itemNote" hidden></p>
               </article>
 
-              <div class="study-preferences">
-                <div class="study-overview-group"><button class="text-button overview-study-button" id="overviewStudyButton" type="button"><span data-icon="book" aria-hidden="true"></span>整篇查看</button><span class="study-counter" id="studyCounter" aria-live="polite" aria-atomic="true">1 / 1</span></div>
-                <label class="answer-visibility-toggle"><span>始终显示英文</span><input id="alwaysShowAnswerInput" type="checkbox" role="switch" /></label>
-              </div>
               <div class="study-progress" aria-hidden="true"><span id="studyProgressBar"></span></div>
 
               <div class="self-check">
@@ -192,6 +183,16 @@
                   连续朗读
                 </button>
                 <button class="button button-primary" id="nextItemButton" type="button">下一条</button>
+              </div>
+            </div>
+            <div class="study-preferences">
+              <button class="text-button overview-study-button" id="overviewStudyButton" type="button"><span data-icon="book" aria-hidden="true"></span>整篇查看</button>
+              <div class="study-reading-actions">
+                <label class="answer-visibility-toggle"><span>始终显示英文</span><input id="alwaysShowAnswerInput" type="checkbox" role="switch" /></label>
+                <button class="sound-button" id="speakButton" type="button" aria-label="朗读当前英文">
+                  <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6L8 10H4Zm12-1a4 4 0 0 1 0 6m2-9a8 8 0 0 1 0 12"/></svg>
+                  <span>朗读</span>
+                </button>
               </div>
             </div>
             <div class="study-filter-bar" aria-label="选择背诵范围">
@@ -371,7 +372,7 @@
         </div>
         <p class="field-help">完整备份为 ZIP，包含作业名称、顺序、背诵进度、MP3 原文件及其对应位置。请将备份存到手机“下载”或其他保留位置，恢复时直接选择 ZIP，无需解压。也支持旧 JSON；旧备份未包含的音频只能连接本机已有文件。</p>
         <p class="backup-status" id="backupStatus" role="status" aria-live="polite"></p>
-        <div class="modal-actions"><small class="app-version">版本 1.6.0</small><span class="spacer"></span><button class="button button-primary" type="submit">保存设置</button></div>
+        <div class="modal-actions"><small class="app-version">版本 1.6.1</small><span class="spacer"></span><button class="button button-primary" type="submit">保存设置</button></div>
       </form>
     </dialog>
 
