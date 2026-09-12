@@ -7,6 +7,7 @@ import { openZip } from "../archive.js";
 import { runStudyChecks } from "./ui-study.mjs";
 import { runOverviewChecks } from "./ui-overview.mjs";
 import { runImportAudioChecks } from "./ui-import-audio.mjs";
+import { runReviewChecks } from "./ui-review.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const mime = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
@@ -248,6 +249,7 @@ try {
   await runStudyChecks(browser, baseURL, shots, errors);
   await runOverviewChecks(browser, baseURL, shots, errors);
   await runImportAudioChecks(browser, baseURL, shots, errors);
+  await runReviewChecks(browser, baseURL, shots, errors);
 
   // Browser fallback must also select Mandarin and use each segment's language/rate.
   const webContext = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: "block" });

@@ -11,7 +11,7 @@ permissions:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -53,7 +53,7 @@ jobs:
           gradle-version: "8.13"
 
       - name: Build installable debug APK
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+        run: gradle :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
 
       - name: Verify APK and Android TTS declaration
         run: |
@@ -61,6 +61,8 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
           "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print "$APK" > /tmp/english-recite-manifest.xml
           grep -F "android.intent.action.TTS_SERVICE" /tmp/english-recite-manifest.xml
+          grep -F "mediaPlayback" /tmp/english-recite-manifest.xml
+          grep -F "PlaybackService" /tmp/english-recite-manifest.xml
           unzip -l "$APK" > /tmp/english-recite-apk-files.txt
           grep -F "assets/www/audio-store.js" /tmp/english-recite-apk-files.txt
           grep -F "assets/www/word-export.js" /tmp/english-recite-apk-files.txt
@@ -71,14 +73,39 @@ jobs:
           grep -F "assets/www/assignment-player.js" /tmp/english-recite-apk-files.txt
           grep -F "assets/www/icons.js" /tmp/english-recite-apk-files.txt
 
+      - name: Enable emulator acceleration
+        run: sudo chmod 666 /dev/kvm
+
+      - name: Verify locked-screen playback on Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: |
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell pm grant com.qilin.englishrecite.debug android.permission.POST_NOTIFICATIONS
+            adb shell am instrument -w com.qilin.englishrecite.debug.test/com.qilin.englishrecite.PlaybackInstrumentation | tee output/android-playback.txt
+            grep -F "Background playback checks passed" output/android-playback.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: English_Recite-Android-playback-checks
+          path: output/android-playback.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Prepare download file
         run: |
           mkdir -p output
-          cp app/build/outputs/apk/debug/app-debug.apk output/English_Recite_v1.8.0.apk
+          cp app/build/outputs/apk/debug/app-debug.apk output/English_Recite_v1.9.0.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: English_Recite-Android
-          path: output/English_Recite_v1.8.0.apk
+          path: output/English_Recite_v1.9.0.apk
           if-no-files-found: error
           retention-days: 30

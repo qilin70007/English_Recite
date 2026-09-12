@@ -769,7 +769,7 @@ svg {
 
 .study-filter-bar {
   display: grid;
-  grid-template-columns: minmax(180px, 1.2fr) minmax(170px, 1fr) auto;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
   align-items: end;
   gap: 10px;
   margin-top: 0;
@@ -2056,4 +2056,25 @@ input[role="switch"]:checked::after {
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
+}
+
+/* Keep the card as the main focus; review controls stay below it. */
+.due-review-card { display:flex; align-items:center; gap:16px; margin:0 0 18px; padding:18px; border:1px solid var(--line); border-radius:22px; background:var(--surface); }
+.due-review-card > div { display:flex; flex:1; flex-wrap:wrap; align-items:center; gap:6px 16px; font-size:13px; color:var(--muted); }
+.card-tools { display:flex; justify-self:end; gap:0; }
+.card-tools .icon-button { width:44px; height:44px; min-height:44px; }
+.difficulty-button { background:transparent; color:var(--muted); }
+.difficulty-button[aria-pressed="true"] { color:#aa6d12; background:#fff4d9; }
+.difficulty-button[aria-pressed="true"] svg { fill:#f5c864; }
+.study-extra-filters { grid-column:1 / -1; display:flex; gap:20px; flex-wrap:wrap; }
+.study-extra-filters label { display:flex; align-items:center; gap:8px; min-height:36px; font-size:14px; }
+.study-extra-filters input { width:19px; height:19px; accent-color:var(--primary); }
+.study-filter-bar #applyStudyFilterButton { grid-column:1 / -1; }
+.recall-countdown { font-size:20px; font-weight:700; color:var(--primary); }
+.answer-panel.is-recalling .reveal-copy { display:none; }
+@media(max-width:720px) {
+ .due-review-card { padding:12px; gap:12px; }
+ .due-review-card .button { font-size:14px; padding:0 12px; white-space:nowrap; }
+ .card-tools .icon-button { width:40px; }
+ .card-tools { margin-right:-4px; }
 }

@@ -1,7 +1,6 @@
 import {
   STATUS,
   buildCue,
-  buildStudyEntries,
   buildSpeechSegments,
   deduplicateItems,
   isMandarinVoice,
@@ -10,12 +9,14 @@ import {
   summarize,
 } from "./core.js";
 import { deleteAudio, deleteAudios, getAudio, saveAudio } from "./audio-store.js";
-import { createUnmasteredDocx, selectUnmastered } from "./word-export.js";
+import { createUnmasteredDocx, selectUnmastered, missingDictationPrompts } from "./word-export.js";
 import { audioLocations, createBackup, readBackup, stageRestore } from "./backup.js";
 import { downloadFile } from "./file-download.js";
 import { AssignmentPlayer } from "./assignment-player.js";
 import { icon, renderStaticIcons } from "./icons.js";
 import { readDocxText } from "./docx-import.js";
+import { normalizeLearning, setDifficulty, assessItem, configureReview, learningEntries } from "./review.js";
+import { playbackDelay, cancelPlaybackDelay } from "./playback-clock.js";
 
 const STORAGE_KEY = "englishRecite.state.v1";
 const OCR_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
@@ -56,6 +57,22 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
 const elements = {
+  todayReviewButton: $("#todayReviewButton"),
+  todayReviewHint: $("#todayReviewHint"),
+  reviewPlanButton: $("#reviewPlanButton"),
+  settingsReviewPlanButton: $("#settingsReviewPlanButton"),
+  reviewPlanDialog: $("#reviewPlanDialog"),
+  reviewPlanForm: $("#reviewPlanForm"),
+  reviewNotebookList: $("#reviewNotebookList"),
+  newReviewEnabledInput: $("#newReviewEnabledInput"),
+  difficultyButton: $("#difficultyButton"),
+  onlyDifficultInput: $("#onlyDifficultInput"),
+  onlyDueInput: $("#onlyDueInput"),
+  recallCountdown: $("#recallCountdown"),
+  playbackModeSelect: $("#playbackModeSelect"),
+  answerWaitSelect: $("#answerWaitSelect"),
+  wordLayoutSelect: $("#wordLayoutSelect"),
+
   saveIndicator: $("#saveIndicator"),
   assignmentCount: $("#assignmentCount"),
   sideAssignmentList: $("#sideAssignmentList"),
@@ -180,7 +197,8 @@ function createId(prefix = "id") {
 
 function defaultState() {
   return {
-    version: 2,
+    version: 3,
+    reviewPlanConfigured: false,
     activeAssignmentId: null,
     assignments: [],
     settings: {
@@ -190,6 +208,9 @@ function defaultState() {
       repeat: 2,
       autoSpeak: true,
       alwaysShowAnswer: false,
+      playbackMode: "follow",
+      answerWait: 5,
+      newReviewEnabled: true,
     },
   };
 }
@@ -204,6 +225,7 @@ function normalizeItem(item) {
     reviewCount: Number(item.reviewCount) || 0,
     lastReviewed: item.lastReviewed || null,
     audio: normalizeAudioMetadata(item.audio),
+    ...normalizeLearning(item),
   };
 }
 
@@ -225,6 +247,7 @@ function normalizeAssignment(assignment) {
     createdAt: assignment.createdAt || new Date().toISOString(),
     updatedAt: assignment.updatedAt || assignment.createdAt || new Date().toISOString(),
     audio: normalizeAudioMetadata(assignment.audio),
+    reviewEnabled: assignment.reviewEnabled === true,
     items: Array.isArray(assignment.items) ? assignment.items.map(normalizeItem) : [],
   };
 }
@@ -239,7 +262,8 @@ function loadState() {
     return {
       ...base,
       ...saved,
-      version: 2,
+      version: 3,
+      reviewPlanConfigured: saved.reviewPlanConfigured === true,
       assignments,
       activeAssignmentId: activeExists ? saved.activeAssignmentId : assignments[0]?.id || null,
       settings: { ...base.settings, ...(saved.settings || {}) },
@@ -267,6 +291,9 @@ let speechRunId = 0;
 let continuousPlaying = false;
 let continuousRunId = 0;
 let continuousTimer = null;
+let recallPhase = "";
+let recallDeadline = 0;
+let nativePlaybackActive = false;
 let nativeTtsCleanup = null;
 let activeAudio = null;
 let activeAudioUrl = "";
@@ -404,7 +431,40 @@ function renderSideAssignments() {
     .join("");
 }
 
+function dueEntries() {
+  return learningEntries(state.assignments, "all", "all", { dueOnly: true });
+}
+
+function renderReviewHome() {
+  const count = dueEntries().length;
+  const enrolled = state.assignments.filter((a) => a.reviewEnabled).length;
+  elements.todayReviewButton.textContent = state.reviewPlanConfigured ? `今天复习 · ${count} 条` : "开启定期复习";
+  elements.todayReviewHint.textContent = !state.reviewPlanConfigured ? "先选择参加复习的作业本"
+    : count ? "含之前未完成的到期内容" : enrolled ? "今天暂无到期内容，可以学习新作业" : "还没有作业本加入计划";
+}
+
+function openReviewPlan() {
+  stopSpeechAndContinuous();
+  elements.settingsDialog.close();
+  elements.reviewNotebookList.innerHTML = state.assignments.map((a) => `<label class="word-notebook-row"><input type="checkbox" name="reviewNotebook" value="${escapeHtml(a.id)}" ${a.reviewEnabled || (!state.reviewPlanConfigured && a.id === state.activeAssignmentId) ? "checked" : ""} /><span>${escapeHtml(a.title)}<small>共 ${a.items.length} 条</small></span></label>`).join("") || '<p class="field-help">先在作业本页面添加内容。</p>';
+  elements.newReviewEnabledInput.checked = state.settings.newReviewEnabled !== false;
+  elements.reviewPlanDialog.showModal();
+}
+
+function saveReviewPlan(event) {
+  event.preventDefault();
+  const selected = new Set($$("[name=reviewNotebook]:checked").map((i) => i.value));
+  state.assignments.forEach((a) => configureReview(a, selected.has(a.id)));
+  state.reviewPlanConfigured = true;
+  state.settings.newReviewEnabled = elements.newReviewEnabledInput.checked;
+  saveState();
+  renderAll();
+  elements.reviewPlanDialog.close();
+  showToast("复习计划已保存");
+}
+
 function renderHome() {
+  renderReviewHome();
   const now = new Date();
   elements.todayLabel.textContent = new Intl.DateTimeFormat("zh-CN", {
     month: "long",
@@ -534,6 +594,7 @@ function addDemoAssignment() {
     type: "mixed",
     createdAt: now,
     updatedAt: now,
+    reviewEnabled: state.reviewPlanConfigured && state.settings.newReviewEnabled !== false,
     items: DEMO_ITEMS.map(([prompt, answer]) => createImportedItem({ prompt, answer })),
   });
   state.assignments.unshift(assignment);
@@ -550,8 +611,8 @@ function assignmentsForScope(scope) {
   return assignment ? [assignment] : [];
 }
 
-function sessionEntriesFor(scope, filter) {
-  return buildStudyEntries(state.assignments, scope, filter);
+function sessionEntriesFor(scope, filter, options = {}) {
+  return learningEntries(state.assignments, scope, filter, options);
 }
 
 function populateStudyFilters(scope = session?.scope || state.activeAssignmentId || "all", filter = session?.filter || "all") {
@@ -561,10 +622,12 @@ function populateStudyFilters(scope = session?.scope || state.activeAssignmentId
   elements.studyScopeSelect.value = scope === "all" || state.assignments.some((item) => item.id === scope)
     ? scope
     : "all";
-  elements.studyStatusFilter.value = ["all", "unknown", "fuzzy", "focus"].includes(filter) ? filter : "all";
+  elements.onlyDifficultInput.checked = session?.difficultOnly === true;
+  elements.onlyDueInput.checked = session?.dueOnly === true;
+  elements.studyStatusFilter.value = ["all", "unknown", "fuzzy", "focus", "mastered"].includes(filter) ? filter : "all";
 }
 
-function startStudy(filter = "all", scope = state.activeAssignmentId, { autoSpeak = true } = {}) {
+function startStudy(filter = "all", scope = state.activeAssignmentId, { autoSpeak = true, difficultOnly = false, dueOnly = false } = {}) {
   if (!state.assignments.length) {
     showToast("请先添加一份背诵作业");
     return false;
@@ -572,7 +635,7 @@ function startStudy(filter = "all", scope = state.activeAssignmentId, { autoSpea
   const normalizedScope = scope === "all" || state.assignments.some((item) => item.id === scope)
     ? scope
     : state.activeAssignmentId || "all";
-  const entries = sessionEntriesFor(normalizedScope, filter);
+  const entries = sessionEntriesFor(normalizedScope, filter, { difficultOnly, dueOnly });
   if (!entries.length) {
     const scopeLabel = normalizedScope === "all" ? "所有作业本" : "这份作业本";
     showToast(`${scopeLabel}中没有符合当前类别的内容`);
@@ -586,6 +649,8 @@ function startStudy(filter = "all", scope = state.activeAssignmentId, { autoSpea
   session = {
     scope: normalizedScope,
     filter,
+    difficultOnly,
+    dueOnly,
     entries,
     index: 0,
     revealed: state.settings.alwaysShowAnswer === true,
@@ -637,9 +702,15 @@ function renderStudy() {
     : assignment.title;
   elements.studyCounter.textContent = `${position} / ${count}`;
   elements.studyProgressBar.style.width = `${(position / count) * 100}%`;
-  elements.alwaysShowAnswerInput.checked = state.settings.alwaysShowAnswer === true;
+  const recalling = continuousPlaying && state.settings.playbackMode === "recall";
+  elements.alwaysShowAnswerInput.disabled = recalling;
+  elements.alwaysShowAnswerInput.checked = recalling ? false : state.settings.alwaysShowAnswer === true;
+  elements.alwaysShowAnswerInput.title = recalling ? "听题回忆时先隐藏答案，停止后恢复原设置" : "";
   populateStudyFilters(session.scope, session.filter);
 
+  elements.difficultyButton.setAttribute("aria-pressed", String(item.difficult === true));
+  elements.difficultyButton.setAttribute("aria-label", item.difficult ? "取消重难点" : "加入重难点");
+  elements.difficultyButton.title = item.difficult ? "重难点（点击取消）" : "加入重难点";
   elements.currentStatusPill.textContent = STATUS_LABELS[item.status] || STATUS_LABELS[STATUS.NEW];
   elements.currentStatusPill.className = `status-pill status-${item.status || STATUS.NEW}`;
   elements.audioSourceBadge.hidden = !item.audio;
@@ -656,7 +727,8 @@ function renderStudy() {
   elements.answerPanel.classList.toggle("concealed", !session.revealed);
   elements.answerPanel.setAttribute("aria-expanded", String(session.revealed));
   elements.itemNote.textContent = item.note || "";
-  elements.itemNote.hidden = !item.note;
+  elements.itemNote.hidden = !item.note || (recalling && !session.revealed);
+  updateRecallDisplay();
   elements.previousItemButton.disabled = session.index === 0;
   elements.nextItemButton.textContent = !continuousPlaying && session.index === count - 1 ? "完成本轮" : "下一条";
   updatePlaybackButtons();
@@ -681,9 +753,8 @@ function markCurrentItem(status) {
   const keepPlaying = continuousPlaying;
   stopCardPlayback();
   continuousPlaying = keepPlaying;
-  item.status = status;
-  item.lastReviewed = new Date().toISOString();
-  item.reviewCount = (Number(item.reviewCount) || 0) + 1;
+  assessItem(item, status, assignment.reviewEnabled);
+  renderReviewHome();
   assignment.updatedAt = new Date().toISOString();
   saveState();
   renderStudy();
@@ -817,14 +888,25 @@ function stopSpeech() {
 }
 
 function stopCardPlayback() {
+  const wasRecall = continuousPlaying && state.settings.playbackMode === "recall";
   if (markAdvanceTimer !== null) {
     clearTimeout(markAdvanceTimer);
     markAdvanceTimer = null;
   }
   continuousPlaying = false;
   continuousRunId += 1;
-  clearTimeout(continuousTimer);
+  cancelPlaybackDelay(continuousTimer);
   continuousTimer = null;
+  recallPhase = "";
+  updateRecallDisplay();
+  elements.alwaysShowAnswerInput.disabled = false;
+  elements.alwaysShowAnswerInput.checked = state.settings.alwaysShowAnswer === true;
+  if (wasRecall && session) {
+    session.revealed = state.settings.alwaysShowAnswer === true;
+    elements.answerPanel.classList.toggle("concealed", !session.revealed);
+    elements.answerPanel.setAttribute("aria-expanded", String(session.revealed));
+    elements.itemNote.hidden = !getCurrentItem()?.note;
+  }
   stopSpeech();
   updatePlaybackButtons();
 }
@@ -876,7 +958,7 @@ function speakText(text, onDone, options = {}) {
         elements.speakButton.classList.remove("speaking");
         onDone?.();
       } else {
-        window.setTimeout(next, step % segments.length === 0 ? 400 : 60);
+        playbackDelay(next, step % segments.length === 0 ? 400 : 60);
       }
     };
     if (hasNativeTts) {
@@ -1005,8 +1087,20 @@ function mp3AssignmentForSelection() {
   if (!session) return null;
   const scope = elements.studyScopeSelect.value || session.scope;
   if (scope !== "all") return assignmentsForScope(scope)[0] || null;
-  const ids = new Set(sessionEntriesFor(scope, elements.studyStatusFilter.value || session.filter).map((entry) => entry.assignmentId));
+  const ids = new Set(sessionEntriesFor(scope, elements.studyStatusFilter.value || session.filter, selectedStudyOptions()).map((entry) => entry.assignmentId));
   return ids.size === 1 ? assignmentsForScope([...ids][0])[0] || null : null;
+}
+
+function selectedStudyOptions() {
+  return { difficultOnly: elements.onlyDifficultInput.checked, dueOnly: elements.onlyDueInput.checked };
+}
+
+function updateRecallDisplay() {
+  const hidden = !continuousPlaying || !["prompt", "wait"].includes(recallPhase);
+  elements.recallCountdown.hidden = hidden;
+  elements.answerPanel.classList.toggle("is-recalling", !hidden);
+  if (!hidden) elements.recallCountdown.textContent = recallPhase === "prompt" ? "听中文，准备回忆"
+    : `请回忆 · ${Math.max(1, Math.ceil((recallDeadline - Date.now()) / 1000))} 秒`;
 }
 
 function updatePlaybackButtons() {
@@ -1034,6 +1128,11 @@ function updatePlaybackButtons() {
   mp3Button.setAttribute("aria-label", description);
   mp3Button.title = description;
   mp3Button.innerHTML = `${icon(active ? "pause" : "play")}<span>${label}</span>`;
+  const keepAlive = continuousPlaying || active;
+  if (keepAlive !== nativePlaybackActive) {
+    nativePlaybackActive = keepAlive;
+    try { window.AndroidPlayback?.setActive(keepAlive); } catch { /* Browser needs no native service. */ }
+  }
   if (session?.entries.length) elements.nextItemButton.textContent = !continuousPlaying && session.index === session.entries.length - 1 ? "完成本轮" : "下一条";
 }
 
@@ -1042,34 +1141,53 @@ function playContinuousItem(runId) {
   if (!isCurrent()) return;
   const item = getCurrentItem();
   if (!item) { stopCardPlayback(); return; }
-  session.revealed = true;
+  const recall = state.settings.playbackMode === "recall" && item.prompt?.trim() && item.answer?.trim();
+  recallPhase = recall ? "prompt" : "answer";
+  session.revealed = !recall;
   renderStudy();
   keepStudyCardInView();
-  const readAnswer = () => {
-    if (isCurrent()) speakCurrent(finishItem);
-  };
   const finishItem = () => {
     if (!isCurrent()) return;
     session.index = (session.index + 1) % session.entries.length;
-    session.revealed = true;
+    const nextRecall = state.settings.playbackMode === "recall" && getCurrentItem()?.prompt?.trim();
+    session.revealed = !nextRecall;
+    recallPhase = nextRecall ? "prompt" : "answer";
     renderStudy();
     keepStudyCardInView();
-    continuousTimer = window.setTimeout(() => playContinuousItem(runId), 420);
+    continuousTimer = playbackDelay(() => playContinuousItem(runId), 420);
   };
-  // Read the prompt once, then let the answer retain its MP3 priority/repeat setting.
-  if (item.prompt?.trim() && item.answer?.trim()) {
-    speakText(item.prompt, readAnswer, { repeat: 1 });
-  } else {
-    readAnswer();
-  }
+  const readAnswer = () => {
+    if (!isCurrent()) return;
+    recallPhase = "answer";
+    session.revealed = true;
+    renderStudy();
+    speakCurrent(finishItem);
+  };
+  const afterPrompt = () => {
+    if (!isCurrent()) return;
+    if (!recall) { readAnswer(); return; }
+    const seconds = [3, 5, 10, 20, 30].includes(Number(state.settings.answerWait)) ? Number(state.settings.answerWait) : 5;
+    recallPhase = "wait";
+    recallDeadline = Date.now() + seconds * 1000;
+    const tick = () => {
+      if (!isCurrent()) return;
+      if (Date.now() >= recallDeadline) { readAnswer(); return; }
+      updateRecallDisplay();
+      continuousTimer = playbackDelay(tick, Math.min(500, recallDeadline - Date.now()));
+    };
+    tick();
+  };
+  if (item.prompt?.trim() && item.answer?.trim()) speakText(item.prompt, afterPrompt, { repeat: 1 });
+  else readAnswer();
 }
 
 function prepareSelectedStudy() {
   const scope = elements.studyScopeSelect.value;
   const filter = elements.studyStatusFilter.value;
-  if (session && session.scope === scope && session.filter === filter) return true;
+  const options = selectedStudyOptions();
+  if (session && session.scope === scope && session.filter === filter && session.difficultOnly === options.difficultOnly && session.dueOnly === options.dueOnly) return true;
   stopSpeechAndContinuous();
-  return startStudy(filter, scope, { autoSpeak: false });
+  return startStudy(filter, scope, { autoSpeak: false, ...options });
 }
 
 function startListPlayback() {
@@ -1391,6 +1509,7 @@ async function saveImportedAssignment(event) {
     createdAt: now,
     updatedAt: now,
     items: items.map(createImportedItem),
+    reviewEnabled: state.reviewPlanConfigured && state.settings.newReviewEnabled !== false,
   });
   if (audioFile) {
     const saveButton = $("#saveAssignmentButton");
@@ -1749,6 +1868,8 @@ function openSettings() {
   elements.rateSelect.value = String(state.settings.rate);
   elements.repeatSelect.value = String(state.settings.repeat);
   elements.autoSpeakInput.checked = Boolean(state.settings.autoSpeak);
+  elements.playbackModeSelect.value = state.settings.playbackMode === "recall" ? "recall" : "follow";
+  elements.answerWaitSelect.value = String(state.settings.answerWait || 5);
   elements.settingsDialog.showModal();
 }
 
@@ -1760,6 +1881,8 @@ function saveSettings(event) {
   state.settings.rate = Number(elements.rateSelect.value);
   state.settings.repeat = Number(elements.repeatSelect.value);
   state.settings.autoSpeak = elements.autoSpeakInput.checked;
+  state.settings.playbackMode = elements.playbackModeSelect.value;
+  state.settings.answerWait = Number(elements.answerWaitSelect.value);
   saveState();
   elements.settingsDialog.close();
   showToast("设置已保存");
@@ -1817,7 +1940,8 @@ async function restoreBackup(file) {
     const assignments = parsed.assignments.map(normalizeAssignment);
     const nextState = {
       ...base,
-      version: 2,
+      version: 3,
+      reviewPlanConfigured: parsed.reviewPlanConfigured === true,
       assignments,
       activeAssignmentId: assignments.some((item) => item.id === parsed.activeAssignmentId)
         ? parsed.activeAssignmentId
@@ -1838,8 +1962,10 @@ async function restoreBackup(file) {
     elements.rateSelect.value = String(state.settings.rate);
     elements.repeatSelect.value = String(state.settings.repeat);
     elements.autoSpeakInput.checked = Boolean(state.settings.autoSpeak);
+  elements.playbackModeSelect.value = state.settings.playbackMode === "recall" ? "recall" : "follow";
+  elements.answerWaitSelect.value = String(state.settings.answerWait || 5);
     updateTtsStatus();
-    updateBackupStatus(`已恢复 ${assignments.length} 本作业和 ${restored.audios.length} 个音频，顺序与进度已保留。${restored.missingCount ? `还有 ${restored.missingCount} 个音频需重新添加。` : ""}`);
+    updateBackupStatus(`已恢复 ${assignments.length} 本作业和 ${restored.audios.length} 个音频，顺序、进度、重难点与复习计划已保留。${restored.missingCount ? `还有 ${restored.missingCount} 个音频需重新添加。` : ""}`);
     elements.backupStatus.scrollIntoView({ block: "center" });
     showToast("备份已恢复", 3200);
   } catch (error) {
@@ -1852,15 +1978,18 @@ async function restoreBackup(file) {
 }
 
 function wordExportOptions() {
-  return { scope: $$("[name=wordNotebook]:checked", elements.wordExportForm).map((input) => input.value), statuses: $$("[name=wordStatus]:checked", elements.wordExportForm).map((input) => input.value) };
+  return { scope: $$("[name=wordNotebook]:checked", elements.wordExportForm).map((input) => input.value), statuses: $$("[name=wordStatus]:checked", elements.wordExportForm).map((input) => input.value), layout: elements.wordLayoutSelect.value };
 }
 
 function updateWordExportSummary() {
   const options = wordExportOptions();
   const groups = selectUnmastered(state.assignments, options.scope, options.statuses);
   const count = groups.reduce((sum, group) => sum + group.items.length, 0);
-  elements.wordExportSummary.textContent = count ? `将导出 ${groups.length} 本作业中的 ${count} 条内容，按作业本和词条顺序排列，包含中文提示、英文及备注。` : "没有符合选择的内容，请选择其他作业本或状态。";
-  elements.saveWordButton.disabled = count === 0;
+  const missing = options.layout === "dictation" ? missingDictationPrompts(groups) : [];
+  elements.wordExportSummary.textContent = missing.length ? `有 ${missing.length} 条缺少中文提示，请先在作业本整体编辑中补充：${missing.slice(0, 3).join("；")}`
+    : count ? `将导出 ${groups.length} 本作业中的 ${count} 条内容，${options.layout === "dictation" ? "只有中文提示和默写空白，不含英文答案及备注。" : "按原顺序排列，包含中文提示、英文及备注。"}`
+      : "没有符合选择的内容，请选择其他作业本或状态。";
+  elements.saveWordButton.disabled = count === 0 || missing.length > 0;
 }
 
 function openWordExport(scope = "all") {
@@ -1878,7 +2007,7 @@ async function exportWord(event) {
     const options = wordExportOptions();
     const blob = await createUnmasteredDocx(state.assignments, options);
     const title = options.scope.length === 1 ? state.assignments.find((assignment) => assignment.id === options.scope[0])?.title || "作业" : `所选${options.scope.length}本作业`;
-    const saved = await downloadFile(blob, `${title}-未掌握复习清单.docx`, (message) => { elements.wordExportSummary.textContent = message; });
+    const saved = await downloadFile(blob, `${title}-${options.layout === "dictation" ? "中文默写" : "未掌握复习清单"}.docx`, (message) => { elements.wordExportSummary.textContent = message; });
     if (saved) { elements.wordExportDialog.close(); showToast("Word 复习清单已导出"); }
     else updateWordExportSummary();
   } catch (error) {
@@ -1927,6 +2056,27 @@ function bindEvents() {
     }
   });
 
+  elements.todayReviewButton.addEventListener("click", () => {
+    if (!state.reviewPlanConfigured) { openReviewPlan(); return; }
+    if (!dueEntries().length) { showToast("今天暂无到期内容，可以继续学习新作业"); return; }
+    startStudy("all", "all", { dueOnly: true });
+  });
+  elements.reviewPlanButton.addEventListener("click", openReviewPlan);
+  elements.settingsReviewPlanButton.addEventListener("click", openReviewPlan);
+  elements.reviewPlanForm.addEventListener("submit", saveReviewPlan);
+  $$('[data-review-select]').forEach((b) => b.addEventListener("click", () => $$("[name=reviewNotebook]").forEach((i) => { i.checked = b.dataset.reviewSelect === "all"; })));
+  elements.difficultyButton.addEventListener("click", () => {
+    const item = getCurrentItem();
+    if (!item) return;
+    setDifficulty(item, !item.difficult);
+    saveState();
+    renderStudy();
+  });
+  window.addEventListener("native-playback-stop", () => { stopSpeechAndContinuous(); if (session) renderStudy(); });
+  window.addEventListener("native-playback-error", () => { stopSpeechAndContinuous(); showToast("后台播放未能启动，请保持软件在前台后重试。", 4000); });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) { renderReviewHome(); updateRecallDisplay(); }
+  });
   elements.startStudyButton.addEventListener("click", () => startStudy("all"));
   elements.focusStudyButton.addEventListener("click", () => startStudy("focus"));
   elements.overviewHomeButton.addEventListener("click", () => openWholeAssignment(state.activeAssignmentId));
@@ -1949,9 +2099,9 @@ function bindEvents() {
   elements.assignmentMp3Button.addEventListener("click", toggleAssignmentMp3);
   elements.editItemButton.addEventListener("click", openEditItemDialog);
   elements.applyStudyFilterButton.addEventListener("click", () => {
-    startStudy(elements.studyStatusFilter.value, elements.studyScopeSelect.value);
+    startStudy(elements.studyStatusFilter.value, elements.studyScopeSelect.value, selectedStudyOptions());
   });
-  [elements.studyScopeSelect, elements.studyStatusFilter].forEach((select) => select.addEventListener("change", () => {
+  [elements.studyScopeSelect, elements.studyStatusFilter, elements.onlyDifficultInput, elements.onlyDueInput].forEach((select) => select.addEventListener("change", () => {
     stopCardPlayback();
   }));
   $$(".status-button").forEach((button) => button.addEventListener("click", () => markCurrentItem(button.dataset.status)));
@@ -1961,7 +2111,7 @@ function bindEvents() {
     state.settings.alwaysShowAnswer = elements.alwaysShowAnswerInput.checked;
     saveState();
     if (!session) return;
-    session.revealed = continuousPlaying || state.settings.alwaysShowAnswer;
+    session.revealed = continuousPlaying ? recallPhase === "answer" : state.settings.alwaysShowAnswer;
     renderStudy();
   });
 
@@ -2158,6 +2308,9 @@ function registerServiceWorker() {
 }
 
 renderStaticIcons();
+try {
+  if (Array.isArray(JSON.parse(localStorage.getItem(STORAGE_KEY))?.assignments)) saveState();
+} catch { /* Do not overwrite malformed stored data during startup. */ }
 bindEvents();
 renderAll();
 showView("home");

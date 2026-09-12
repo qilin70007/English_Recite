@@ -22,6 +22,20 @@ const blobs = new Map([
 ]);
 const readAudio = async (key) => blobs.has(key) ? { blob: blobs.get(key), ...metadata } : null;
 
+test("dictation Word has Chinese prompts and writing lines but no answer or answer-bearing notes", async () => {
+  const data = fixture();
+  data.assignments[0].items[0].note = "答案提示：name";
+  const docx = await createUnmasteredDocx(data.assignments, { scope: "b", layout: "dictation" });
+  const zip = await openZip(docx);
+  const xml = await (await zip.get("word/document.xml").read()).text();
+  assert.match(xml, /英语中文默写练习/);
+  assert.match(xml, /名称/);
+  assert.match(xml, /w:pBdr/);
+  assert.match(xml, /w:w="11906" w:h="16838"/);
+  assert.doesNotMatch(xml, /name|First line|Second line|答案提示|备注：|英文：/);
+  await assert.rejects(createUnmasteredDocx(data.assignments, { layout: "dictation" }), /缺少中文提示/);
+});
+
 test("ZIP is binary, uses standard CRC32, and supports Unicode paths and chunk boundaries", async () => {
   assert.equal(await crc32(new Blob(["123456789"])), 0xcbf43926);
   const big = new Uint8Array(2 * 1024 * 1024 + 21).fill(203);

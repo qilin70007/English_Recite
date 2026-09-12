@@ -12,6 +12,10 @@ import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Build;
+import android.Manifest;
+import java.util.HashMap;
+import java.util.Map;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
@@ -75,10 +79,22 @@ public class MainActivity extends Activity {
     private AudioManager audioManager;
     private boolean ttsAudioFocus;
     private final AudioManager.OnAudioFocusChangeListener ttsFocusListener = focusChange -> {
-        // Android handles ducking/pausing of other media; speech continues on the media stream.
+        if (focusChange == AudioManager.AUDIOFOCUS_LOSS || focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+            mainHandler.post(this::stopBackgroundPlayback);
+        }
     };
     private PendingFile pendingFile;
     private boolean returningFromTtsSettings;
+    private boolean playbackActive;
+    private boolean activityPaused;
+    private boolean notificationRequested;
+    private final Map<String, Runnable> playbackTimers = new HashMap<>();
+    private final Runnable stopPlaybackService = () -> {
+        if (!playbackActive) {
+            stopService(new Intent(this, PlaybackService.class));
+            if (activityPaused && webView != null) webView.onPause();
+        }
+    };
 
     private static final class PendingFile {
         final String id = UUID.randomUUID().toString();
@@ -121,6 +137,7 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
         initializePreferredTts();
         configureWebView(savedInstanceState);
+        PlaybackService.stopListener = this::stopBackgroundPlayback;
     }
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
@@ -202,6 +219,7 @@ public class MainActivity extends Activity {
 
         webView.addJavascriptInterface(new AndroidTtsBridge(), "AndroidTts");
         webView.addJavascriptInterface(new AndroidFilesBridge(), "AndroidFiles");
+        webView.addJavascriptInterface(new AndroidPlaybackBridge(), "AndroidPlayback");
         webView.requestFocusFromTouch();
 
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
@@ -663,6 +681,74 @@ public class MainActivity extends Activity {
         webView.post(() -> webView.evaluateJavascript(script, null));
     }
 
+    private void playbackEvent(String name) {
+        if (webView != null) webView.evaluateJavascript("window.dispatchEvent(new Event(" + JSONObject.quote(name) + "));", null);
+    }
+
+    private void stopBackgroundPlayback() {
+        playbackActive = false;
+        for (Runnable task : playbackTimers.values()) mainHandler.removeCallbacks(task);
+        playbackTimers.clear();
+        stopNativeSpeech();
+        playbackEvent("native-playback-stop");
+        mainHandler.postDelayed(stopPlaybackService, 500);
+    }
+
+    private final class AndroidPlaybackBridge {
+        @JavascriptInterface
+        public void setActive(boolean active) {
+            runOnUiThread(() -> {
+                mainHandler.removeCallbacks(stopPlaybackService);
+                if (!active) {
+                    playbackActive = false;
+                    mainHandler.postDelayed(stopPlaybackService, 500);
+                    return;
+                }
+                boolean alreadyActive = playbackActive;
+                playbackActive = true;
+                if (webView != null) webView.onResume();
+                if (alreadyActive) return;
+                try {
+                    Intent intent = new Intent(MainActivity.this, PlaybackService.class);
+                    if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
+                    else startService(intent);
+                    if (Build.VERSION.SDK_INT >= 33 && !notificationRequested
+                            && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                        notificationRequested = true;
+                        requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 503);
+                    }
+                } catch (RuntimeException error) {
+                    playbackActive = false;
+                    stopService(new Intent(MainActivity.this, PlaybackService.class));
+                    playbackEvent("native-playback-error");
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void schedule(String id, long delayMs) {
+            if (id == null || id.length() > 80) return;
+            runOnUiThread(() -> {
+                Runnable old = playbackTimers.remove(id);
+                if (old != null) mainHandler.removeCallbacks(old);
+                Runnable task = () -> {
+                    playbackTimers.remove(id);
+                    dispatchTtsEvent("native-playback-timer", id);
+                };
+                playbackTimers.put(id, task);
+                mainHandler.postDelayed(task, Math.max(0, Math.min(60000, delayMs)));
+            });
+        }
+
+        @JavascriptInterface
+        public void cancel(String id) {
+            runOnUiThread(() -> {
+                Runnable task = playbackTimers.remove(id);
+                if (task != null) mainHandler.removeCallbacks(task);
+            });
+        }
+    }
+
     private final class AndroidTtsBridge {
         @JavascriptInterface
         public void speak(String text, double rate, int repeat, String requestId) {
@@ -899,6 +985,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        activityPaused = false;
         if (webView != null) webView.onResume();
         if (returningFromTtsSettings || (ttsInitFailed && !ttsInitializing)) {
             returningFromTtsSettings = false;
@@ -908,7 +995,8 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
-        if (webView != null) webView.onPause();
+        activityPaused = true;
+        if (webView != null && !playbackActive) webView.onPause();
         super.onPause();
     }
 
@@ -939,6 +1027,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        playbackActive = false;
+        PlaybackService.stopListener = null;
+        stopService(new Intent(this, PlaybackService.class));
+        playbackTimers.clear();
         synchronized (this) {
             if (pendingFile != null) {
                 try { if (pendingFile.stream != null) pendingFile.stream.close(); } catch (IOException ignored) { }
@@ -962,6 +1054,7 @@ public class MainActivity extends Activity {
         if (webView != null) {
             webView.removeJavascriptInterface("AndroidTts");
             webView.removeJavascriptInterface("AndroidFiles");
+            webView.removeJavascriptInterface("AndroidPlayback");
             webView.stopLoading();
             webView.destroy();
             webView = null;

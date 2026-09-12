@@ -10,8 +10,9 @@ android {
         applicationId "com.qilin.englishrecite"
         minSdk 24
         targetSdk 36
-        versionCode 11
-        versionName "1.8.0"
+        testInstrumentationRunner "com.qilin.englishrecite.PlaybackInstrumentation"
+        versionCode 12
+        versionName "1.9.0"
     }
 
     buildTypes {
@@ -26,6 +27,7 @@ android {
     }
 
     sourceSets {
+        androidTest.assets.srcDir(rootProject.file("tests/fixtures"))
         main {
             assets.srcDir(layout.buildDirectory.dir("generated/assets"))
         }
@@ -46,6 +48,8 @@ def syncWebAssets = tasks.register("syncWebAssets", Sync) {
         include "index.html"
         include "styles.css"
         include "core.js"
+        include "review.js"
+        include "playback-clock.js"
         include "audio-store.js"
         include "assignment-player.js"
         include "icons.js"
