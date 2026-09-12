@@ -101,6 +101,7 @@ const elements = {
   previousItemButton: $("#previousItemButton"),
   nextItemButton: $("#nextItemButton"),
   continuousPlayButton: $("#continuousPlayButton"),
+  assignmentMp3Button: $("#assignmentMp3Button"),
   editItemButton: $("#editItemButton"),
   importDialog: $("#importDialog"),
   importForm: $("#importForm"),
@@ -279,7 +280,7 @@ let wholeAssignmentId = null;
 let wholeReturnToSession = false;
 const assignmentPlayer = new AssignmentPlayer({
   getAudio,
-  onChange: updateContinuousButton,
+  onChange: updatePlaybackButtons,
   onError: (error) => showToast(error.message || "整份 MP3 播放失败，请重试。", 4200),
 });
 
@@ -489,8 +490,8 @@ function renderLibrary() {
 function openWholeAssignment(id) {
   const assignment = state.assignments.find((item) => item.id === id);
   if (!assignment) { showToast("请先选择一份背诵作业"); return; }
-  // Looking at the full text must not move the current card or interrupt its notebook MP3.
-  stopCardPlayback();
+  // Reading the overview does not interrupt either playback mode.
+  if (!continuousPlaying) stopCardPlayback();
   wholeAssignmentId = assignment.id;
   wholeReturnToSession = currentView === "study" && getSessionAssignment()?.id === assignment.id;
   elements.wholeAssignmentTitle.textContent = assignment.title;
@@ -563,10 +564,10 @@ function populateStudyFilters(scope = session?.scope || state.activeAssignmentId
   elements.studyStatusFilter.value = ["all", "unknown", "fuzzy", "focus"].includes(filter) ? filter : "all";
 }
 
-function startStudy(filter = "all", scope = state.activeAssignmentId) {
+function startStudy(filter = "all", scope = state.activeAssignmentId, { autoSpeak = true } = {}) {
   if (!state.assignments.length) {
     showToast("请先添加一份背诵作业");
-    return;
+    return false;
   }
   const normalizedScope = scope === "all" || state.assignments.some((item) => item.id === scope)
     ? scope
@@ -575,7 +576,7 @@ function startStudy(filter = "all", scope = state.activeAssignmentId) {
   if (!entries.length) {
     const scopeLabel = normalizedScope === "all" ? "所有作业本" : "这份作业本";
     showToast(`${scopeLabel}中没有符合当前类别的内容`);
-    return;
+    return false;
   }
 
   if (normalizedScope !== "all") {
@@ -593,9 +594,10 @@ function startStudy(filter = "all", scope = state.activeAssignmentId) {
   showView("study");
   renderStudy();
 
-  if (session.revealed && state.settings.autoSpeak) {
+  if (autoSpeak && session.revealed && state.settings.autoSpeak) {
     speakCurrent();
   }
+  return true;
 }
 
 function getSessionEntry() {
@@ -656,11 +658,12 @@ function renderStudy() {
   elements.itemNote.textContent = item.note || "";
   elements.itemNote.hidden = !item.note;
   elements.previousItemButton.disabled = session.index === 0;
-  elements.nextItemButton.textContent = session.index === count - 1 ? "完成本轮" : "下一条";
-  updateContinuousButton();
+  elements.nextItemButton.textContent = !continuousPlaying && session.index === count - 1 ? "完成本轮" : "下一条";
+  updatePlaybackButtons();
 }
 
 function revealAnswer() {
+  if (continuousPlaying) return;
   if (!session || session.revealed) {
     if (!assignmentPlayer.hasTrack) speakCurrent();
     return;
@@ -675,7 +678,9 @@ function markCurrentItem(status) {
   const item = getCurrentItem();
   const assignment = getSessionAssignment();
   if (!item || !assignment) return;
+  const keepPlaying = continuousPlaying;
   stopCardPlayback();
+  continuousPlaying = keepPlaying;
   item.status = status;
   item.lastReviewed = new Date().toISOString();
   item.reviewCount = (Number(item.reviewCount) || 0) + 1;
@@ -690,8 +695,9 @@ function markCurrentItem(status) {
 
 function moveItem(direction) {
   if (!session) return;
+  const keepPlaying = continuousPlaying;
   stopCardPlayback();
-  const nextIndex = session.index + direction;
+  const nextIndex = keepPlaying ? (session.index + direction + session.entries.length) % session.entries.length : session.index + direction;
   if (nextIndex < 0) return;
   if (nextIndex >= session.entries.length) {
     finishSession();
@@ -701,7 +707,8 @@ function moveItem(direction) {
   session.revealed = state.settings.alwaysShowAnswer === true;
   renderStudy();
   keepStudyCardInView();
-  if (session.revealed && state.settings.autoSpeak && !assignmentPlayer.hasTrack) speakCurrent();
+  if (keepPlaying) startListPlayback();
+  else if (session.revealed && state.settings.autoSpeak && !assignmentPlayer.hasTrack) speakCurrent();
 }
 
 function keepStudyCardInView() {
@@ -819,7 +826,7 @@ function stopCardPlayback() {
   clearTimeout(continuousTimer);
   continuousTimer = null;
   stopSpeech();
-  updateContinuousButton();
+  updatePlaybackButtons();
 }
 
 function stopSpeechAndContinuous() {
@@ -994,24 +1001,40 @@ function speakCurrent(onDone) {
   speakText(text, onDone);
 }
 
-function canUseWholeAssignmentAudio() {
-  if (!session || session.scope === "all" || session.filter !== "all") return false;
-  return Boolean(assignmentsForScope(session.scope)[0]?.audio);
+function mp3AssignmentForSelection() {
+  if (!session) return null;
+  const scope = elements.studyScopeSelect.value || session.scope;
+  if (scope !== "all") return assignmentsForScope(scope)[0] || null;
+  const ids = new Set(sessionEntriesFor(scope, elements.studyStatusFilter.value || session.filter).map((entry) => entry.assignmentId));
+  return ids.size === 1 ? assignmentsForScope([...ids][0])[0] || null : null;
 }
 
-function updateContinuousButton() {
+function updatePlaybackButtons() {
   const button = elements.continuousPlayButton;
-  if (!button) return;
-  const whole = canUseWholeAssignmentAudio();
-  const phase = whole && assignmentPlayer.key === assignmentAudioKey(session.scope) ? assignmentPlayer.phase : "idle";
-  const active = whole ? ["loading", "playing"].includes(phase) : continuousPlaying;
-  const label = whole
-    ? ({ loading: "停止播放", playing: "停止播放", paused: "继续播放", ended: "重播整份 MP3", error: "重试整份 MP3" }[phase] || "播放整份 MP3")
-    : continuousPlaying ? "停止朗读" : "连续朗读";
-  button.classList.toggle("playing", active);
-  button.dataset.audioState = phase;
-  button.setAttribute("aria-pressed", String(active));
-  button.innerHTML = `${icon(active ? whole ? "pause" : "stop" : "play")}<span>${label}</span>`;
+  const mp3Button = elements.assignmentMp3Button;
+  if (!button || !mp3Button) return;
+  button.classList.toggle("playing", continuousPlaying);
+  button.dataset.audioState = continuousPlaying ? "playing" : "idle";
+  button.setAttribute("aria-pressed", String(continuousPlaying));
+  button.setAttribute("aria-label", continuousPlaying ? "停止当前清单的循环朗读" : "循环朗读当前筛选清单，并自动切换词条");
+  button.innerHTML = `${icon(continuousPlaying ? "stop" : "play")}<span>${continuousPlaying ? "停止整份" : "播放整份"}</span>`;
+
+  const assignment = mp3AssignmentForSelection();
+  const active = ["loading", "playing"].includes(assignmentPlayer.phase);
+  const matches = assignment && assignmentPlayer.key === assignmentAudioKey(assignment.id);
+  const phase = active || matches ? assignmentPlayer.phase : "idle";
+  const label = active ? "停止MP3" : phase === "paused" ? "继续MP3" : phase === "error" ? "重试MP3" : "MP3";
+  mp3Button.disabled = !active && !assignment?.audio;
+  mp3Button.classList.toggle("playing", active);
+  mp3Button.dataset.audioState = phase;
+  mp3Button.setAttribute("aria-pressed", String(active));
+  const description = active ? "暂停导入的整份 MP3，再次点击可继续"
+    : assignment?.audio ? `${assignment.title}：循环播放导入的整份 MP3，不按词条筛选裁剪`
+      : assignment ? "本作业本尚未上传整份 MP3" : "请先选择一个作业本播放 MP3";
+  mp3Button.setAttribute("aria-label", description);
+  mp3Button.title = description;
+  mp3Button.innerHTML = `${icon(active ? "pause" : "play")}<span>${label}</span>`;
+  if (session?.entries.length) elements.nextItemButton.textContent = !continuousPlaying && session.index === session.entries.length - 1 ? "完成本轮" : "下一条";
 }
 
 function playContinuousItem(runId) {
@@ -1027,12 +1050,7 @@ function playContinuousItem(runId) {
   };
   const finishItem = () => {
     if (!isCurrent()) return;
-    if (session.index >= session.entries.length - 1) {
-      stopSpeechAndContinuous();
-      showToast(session.scope === "all" ? "所选内容朗读完毕" : "整份作业朗读完毕");
-      return;
-    }
-    session.index += 1;
+    session.index = (session.index + 1) % session.entries.length;
     session.revealed = true;
     renderStudy();
     keepStudyCardInView();
@@ -1046,19 +1064,35 @@ function playContinuousItem(runId) {
   }
 }
 
-function toggleContinuousPlay() {
-  if (canUseWholeAssignmentAudio()) {
-    stopCardPlayback();
-    const assignment = assignmentsForScope(session.scope)[0];
-    assignmentPlayer.toggle(assignmentAudioKey(assignment.id), state.settings.rate);
-    return;
-  }
-  if (continuousPlaying) { stopCardPlayback(); return; }
-  assignmentPlayer.stop();
+function prepareSelectedStudy() {
+  const scope = elements.studyScopeSelect.value;
+  const filter = elements.studyStatusFilter.value;
+  if (session && session.scope === scope && session.filter === filter) return true;
+  stopSpeechAndContinuous();
+  return startStudy(filter, scope, { autoSpeak: false });
+}
+
+function startListPlayback() {
+  if (!session?.entries.length) return;
+  stopCardPlayback();
+  assignmentPlayer.pause();
   continuousPlaying = true;
   const runId = ++continuousRunId;
-  updateContinuousButton();
   playContinuousItem(runId);
+}
+
+function toggleContinuousPlay() {
+  if (continuousPlaying) { stopCardPlayback(); return; }
+  if (prepareSelectedStudy()) startListPlayback();
+}
+
+function toggleAssignmentMp3() {
+  if (["loading", "playing"].includes(assignmentPlayer.phase)) { assignmentPlayer.pause(); return; }
+  if (!prepareSelectedStudy()) return;
+  const assignment = mp3AssignmentForSelection();
+  if (!assignment?.audio) { showToast("请先选择已上传整份 MP3 的作业本"); return; }
+  stopCardPlayback();
+  assignmentPlayer.toggle(assignmentAudioKey(assignment.id), state.settings.rate);
 }
 
 function populateVoices(useSavedSettings = false) {
@@ -1912,18 +1946,22 @@ function bindEvents() {
   elements.previousItemButton.addEventListener("click", () => moveItem(-1));
   elements.nextItemButton.addEventListener("click", () => moveItem(1));
   elements.continuousPlayButton.addEventListener("click", toggleContinuousPlay);
+  elements.assignmentMp3Button.addEventListener("click", toggleAssignmentMp3);
   elements.editItemButton.addEventListener("click", openEditItemDialog);
   elements.applyStudyFilterButton.addEventListener("click", () => {
     startStudy(elements.studyStatusFilter.value, elements.studyScopeSelect.value);
   });
+  [elements.studyScopeSelect, elements.studyStatusFilter].forEach((select) => select.addEventListener("change", () => {
+    stopCardPlayback();
+  }));
   $$(".status-button").forEach((button) => button.addEventListener("click", () => markCurrentItem(button.dataset.status)));
 
   elements.alwaysShowAnswerInput.addEventListener("change", () => {
-    stopCardPlayback();
+    if (!continuousPlaying) stopCardPlayback();
     state.settings.alwaysShowAnswer = elements.alwaysShowAnswerInput.checked;
     saveState();
     if (!session) return;
-    session.revealed = state.settings.alwaysShowAnswer;
+    session.revealed = continuousPlaying || state.settings.alwaysShowAnswer;
     renderStudy();
   });
 

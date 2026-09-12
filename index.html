@@ -178,9 +178,10 @@
 
               <div class="study-navigation">
                 <button class="button button-secondary" id="previousItemButton" type="button">上一条</button>
+                <button class="button button-secondary continuous-button" id="assignmentMp3Button" type="button" disabled aria-label="播放作业本导入的整份 MP3"><span data-icon="play" aria-hidden="true"></span><span>MP3</span></button>
                 <button class="button button-secondary continuous-button" id="continuousPlayButton" type="button">
                   <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8 6 10 6-10 6V6Z"/></svg>
-                  连续朗读
+                  播放整份
                 </button>
                 <button class="button button-primary" id="nextItemButton" type="button">下一条</button>
               </div>
@@ -307,7 +308,7 @@
         </section>
 
         <label class="field audio-upload-field">
-          <span>整份作业朗读 MP3 <small>（可选，连续朗读时优先播放）</small></span>
+          <span>整份作业朗读 MP3 <small>（可选，使用“MP3”按钮播放）</small></span>
           <input id="assignmentAudioInput" type="file" accept="audio/mpeg,.mp3" />
         </label>
         <p class="field-help">也可以保存后在“作业本 → 整体编辑”中，给每一条内容分别上传 MP3。</p>
@@ -339,7 +340,7 @@
           <label class="field"><span>作业本名称</span><input id="editAssignmentTitleInput" maxlength="40" required /></label>
           <label class="field"><span>内容类型</span><select id="editAssignmentTypeInput"><option value="mixed">混合内容</option><option value="word">单词</option><option value="phrase">短语</option><option value="sentence">句子</option><option value="text">课文</option></select></label>
         </div>
-        <label class="field"><span>整份作业朗读 MP3 <small>（连续朗读时优先播放）</small></span><input id="editAssignmentAudioInput" type="file" accept="audio/mpeg,.mp3" /></label>
+        <label class="field"><span>整份作业朗读 MP3 <small>（使用“MP3”按钮播放）</small></span><input id="editAssignmentAudioInput" type="file" accept="audio/mpeg,.mp3" /></label>
         <div class="audio-meta-row"><span id="editAssignmentAudioName">尚未上传整份 MP3</span><button class="text-button danger-text" id="removeAssignmentAudioButton" type="button" hidden>移除音频</button></div>
         <div class="section-heading compact bulk-heading"><div><h3>逐条校对</h3><span class="muted">可修正串行内容、调整顺序或为每条上传 MP3</span></div><button class="button button-secondary" id="addBulkItemButton" type="button"><span data-icon="plus" aria-hidden="true"></span>新增一条</button></div>
         <div class="bulk-edit-list" id="bulkEditList"></div>
@@ -373,7 +374,7 @@
         </div>
         <p class="field-help">完整备份为 ZIP，包含作业名称、顺序、背诵进度、MP3 原文件及其对应位置。请将备份存到手机“下载”或其他保留位置，恢复时直接选择 ZIP，无需解压。也支持旧 JSON；旧备份未包含的音频只能连接本机已有文件。</p>
         <p class="backup-status" id="backupStatus" role="status" aria-live="polite"></p>
-        <div class="modal-actions"><small class="app-version">版本 1.7.0</small><span class="spacer"></span><button class="button button-primary" type="submit">保存设置</button></div>
+        <div class="modal-actions"><small class="app-version">版本 1.8.0</small><span class="spacer"></span><button class="button button-primary" type="submit">保存设置</button></div>
       </form>
     </dialog>
 

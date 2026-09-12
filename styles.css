@@ -1024,7 +1024,7 @@ svg {
 
 .study-navigation {
   display: grid;
-  grid-template-columns: 1fr 1.3fr 1fr;
+  grid-template-columns: 1fr 1fr 1.2fr 1fr;
   gap: 10px;
   margin-top: 18px;
 }
@@ -1896,16 +1896,19 @@ input[role="switch"]:checked::after {
   }
 
   .study-navigation {
-    grid-template-columns: 1fr 1.6fr 1fr;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
     margin-top: 12px;
   }
 
   .study-navigation .button {
     min-height: 44px;
-    padding: 0 8px;
-    gap: 6px;
+    padding: 0 4px;
+    gap: 4px;
     font-size: 13px;
   }
+
+  .study-navigation .button > svg { display: none; }
 
   .library-card {
     grid-template-columns: 1fr;

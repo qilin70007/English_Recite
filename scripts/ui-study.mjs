@@ -84,6 +84,8 @@ export async function runStudyChecks(browser, baseURL, shots, errors) {
       assert.ok(layout.toggle.left >= layout.overview.right + 4 && layout.toggle.left - layout.overview.right <= 16 && Math.abs(layout.toggle.centerY - layout.overview.centerY) <= 1, "English switch sits beside overview instead of the far right");
       assert.ok(layout.speak.left >= layout.toggle.right + 4 && Math.abs(layout.speak.centerY - layout.toggle.centerY) <= 1, "read button sits to the right of the English switch");
       assert.ok(layout.noHorizontalOverflow, `no horizontal overflow at ${viewport.width}px`);
+      assert.equal(await page.locator('.study-navigation button').count(), 4, 'MP3 and list playback have separate buttons');
+      assert.ok(await page.locator('.study-navigation button').evaluateAll((buttons) => buttons.every((button) => button.scrollWidth <= button.clientWidth + 1 && button.getBoundingClientRect().height >= 44)), `all navigation labels fit at ${viewport.width}px`);
       if (viewport.width <= 720) {
         assert.ok(layout.next.bottom <= layout.nav.top, `word and navigation fit above the bottom bar at ${viewport.width}×${viewport.height}: ${JSON.stringify(layout)}`);
         assert.ok(await page.locator("#settingsButton").evaluate((button) => button.getBoundingClientRect().bottom <= innerHeight && button.getBoundingClientRect().top >= innerHeight - 80), "settings is in bottom navigation");
@@ -108,8 +110,9 @@ export async function runStudyChecks(browser, baseURL, shots, errors) {
 
     // Real MP3 decoding/timeline in Chromium, while the app uses the Android TTS bridge mock.
     await page.evaluate(() => { window.ttsCalls = []; });
-    await page.locator("#continuousPlayButton").click();
-    await page.waitForFunction(() => window.media[0]?.currentTime > 0.3 && document.querySelector("#continuousPlayButton").dataset.audioState === "playing");
+    await page.locator("#assignmentMp3Button").click();
+    await page.waitForFunction(() => window.media[0]?.currentTime > 0.3 && document.querySelector("#assignmentMp3Button").dataset.audioState === "playing");
+    assert.equal(await page.locator('#continuousPlayButton').innerText(), '播放整份');
     const beforeNext = await page.evaluate(() => window.media[0].currentTime);
     await page.locator("#overviewStudyButton").click();
     assert.equal(await page.locator(".whole-entry").count(), 4);
@@ -130,18 +133,24 @@ export async function runStudyChecks(browser, baseURL, shots, errors) {
     await page.locator("#nextItemButton").click();
     assert.equal(await page.locator("#answerPanel").getAttribute("aria-expanded"), "false");
     assert.equal(await page.evaluate(() => window.media[0].paused), false);
-    await page.locator("#continuousPlayButton").click();
+    await page.locator("#assignmentMp3Button").click();
     await page.waitForFunction(() => window.media[0].paused);
     const pausedAt = await page.evaluate(() => window.media[0].currentTime);
-    assert.match(await page.locator("#continuousPlayButton").textContent(), /继续播放/);
+    assert.match(await page.locator("#assignmentMp3Button").textContent(), /继续MP3/);
     await page.locator("#previousItemButton").click();
     await page.locator("#nextItemButton").click();
     assert.equal(await page.evaluate(() => window.media[0].currentTime), pausedAt);
-    await page.locator("#continuousPlayButton").click();
+    await page.locator("#assignmentMp3Button").click();
     await page.waitForFunction((position) => window.media[0].currentTime > position + 0.2, pausedAt);
     assert.ok(await page.evaluate((position) => Math.abs(window.media[0].playCalls.at(-1) - position) < 0.02, pausedAt), "resume starts at the paused time");
     assert.equal(await page.evaluate(() => window.media.length), 1);
-    await page.locator("#continuousPlayButton").click();
+    // Exercise the real decoder at the end of the MP3, not only a mock ended callback.
+    await page.evaluate(() => { window.media[0].currentTime = window.media[0].duration - 0.15; });
+    await page.waitForFunction(() => window.media[0].currentTime < 2 && !window.media[0].paused);
+    assert.equal(await page.evaluate(() => window.media[0].loop), true);
+    assert.equal(await page.locator('#assignmentMp3Button').getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('#studyCounter').textContent(), '3 / 4', 'MP3 loops without changing the card');
+    await page.locator("#assignmentMp3Button").click();
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     await page.screenshot({ path: resolve(shots, "study-hidden-mobile.png"), animations: "disabled" });
     await page.locator("#alwaysShowAnswerInput").check();

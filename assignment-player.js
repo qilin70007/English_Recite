@@ -1,5 +1,5 @@
 // A notebook MP3 owns its media element and playback position independently of
-// card/TTS navigation. Pause never removes its source or changes currentTime.
+// card/TTS navigation. Loop until paused; pause preserves the playback position.
 export class AssignmentPlayer {
   constructor({ getAudio, onChange = () => {}, onError = () => {}, createAudio = (url) => new Audio(url), createURL = (blob) => URL.createObjectURL(blob), revokeURL = (url) => URL.revokeObjectURL(url) }) {
     Object.assign(this, { getAudio, onChange, onError, createAudio, createURL, revokeURL });
@@ -96,11 +96,13 @@ export class AssignmentPlayer {
       const audio = this.createAudio(this.url);
       this.audio = audio;
       audio.preload = "auto";
+      audio.loop = true;
       audio.onended = () => {
         if (generation !== this.generation) return;
-        this.wantPlay = false;
-        this.playRequest++;
-        this.setPhase("ended");
+        // Native looping normally prevents ended; also handle engines that emit it.
+        if (!this.wantPlay) return;
+        audio.currentTime = 0;
+        void this.resume(audio.playbackRate);
       };
       audio.onerror = () => this.fail(new Error("整份 MP3 暂时无法播放，请重试或检查音频文件。"), generation);
       audio.onpause = () => {

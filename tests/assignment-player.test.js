@@ -118,23 +118,32 @@ test("a rejected play promise after pause is harmless; genuine errors remain ret
   assert.equal(media.length, 2);
 });
 
-test("ending permits replay from zero; system pause preserves the position", async () => {
+test("whole MP3 repeats at its end until paused; a late ended event cannot resume it", async () => {
   const { player, media } = fixture();
   await player.toggle("a");
   const audio = media[0];
+  assert.equal(audio.loop, true);
   audio.currentTime = 42;
   audio.pause();
   assert.equal(player.phase, "paused");
   await player.toggle("a");
   assert.equal(audio.plays.at(-1), 42);
-  audio.ended = true;
-  audio.paused = true;
-  audio.onended();
-  assert.equal(player.phase, "ended");
-  assert.equal(player.hasTrack, false);
-  await player.toggle("a");
-  assert.equal(audio.plays.at(-1), 0);
+  for (let round = 0; round < 3; round++) {
+    audio.ended = true;
+    audio.paused = true;
+    audio.onended();
+    await Promise.resolve();
+    assert.equal(player.phase, "playing");
+    assert.equal(player.hasTrack, true);
+    assert.equal(audio.plays.at(-1), 0);
+  }
   assert.equal(media.length, 1);
+  player.pause();
+  const count = audio.plays.length;
+  audio.onended();
+  await Promise.resolve();
+  assert.equal(audio.plays.length, count);
+  assert.equal(player.phase, "paused");
 });
 
 test("missing MP3 reports the problem without inventing a playable track", async () => {
