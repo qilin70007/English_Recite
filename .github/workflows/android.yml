@@ -61,8 +61,17 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
           "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print "$APK" > /tmp/english-recite-manifest.xml
           grep -F "android.intent.action.TTS_SERVICE" /tmp/english-recite-manifest.xml
-          grep -F "mediaPlayback" /tmp/english-recite-manifest.xml
-          grep -F "PlaybackService" /tmp/english-recite-manifest.xml
+          python3 - <<'CHECK'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('/tmp/english-recite-manifest.xml').getroot()
+          ns = '{http://schemas.android.com/apk/res/android}'
+          service = next(s for s in root.findall('.//service') if s.get(ns + 'name', '').endswith('.PlaybackService'))
+          kind = service.get(ns + 'foregroundServiceType', '')
+          assert kind == 'mediaPlayback' or int(kind, 0) == 2, kind
+          assert service.get(ns + 'exported') == 'false'
+          assert any(p.get(ns + 'name') == 'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK' for p in root.findall('uses-permission'))
+          print('Media playback service and permission verified in compiled APK')
+          CHECK
           unzip -l "$APK" > /tmp/english-recite-apk-files.txt
           grep -F "assets/www/audio-store.js" /tmp/english-recite-apk-files.txt
           grep -F "assets/www/word-export.js" /tmp/english-recite-apk-files.txt

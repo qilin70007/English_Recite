@@ -19,9 +19,9 @@ export function missingDictationPrompts(groups) {
 
 function writingSpace(item, type) {
   const words = String(item.answer || "").trim().split(/\s+/).length;
-  const lines = type === "text" ? Math.max(4, Math.min(14, Math.ceil(words / 8)))
+  const lines = type === "text" ? Math.max(4, Math.min(120, Math.ceil(words / 8)))
     : type === "sentence" || words > 8 ? Math.max(2, Math.min(8, Math.ceil(words / 8))) : 1;
-  return Array.from({ length: lines }, (_, index) => `<w:p><w:pPr>${index < lines - 1 ? "<w:keepNext/>" : ""}<w:spacing w:before="80" w:after="160" w:line="500" w:lineRule="exact"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:color="888888"/></w:pBdr></w:pPr><w:r><w:t xml:space="preserve"> </w:t></w:r></w:p>`).join("");
+  return Array.from({ length: lines }, (_, index) => `<w:p><w:pPr>${index === 0 && lines > 1 ? "<w:keepNext/>" : ""}<w:spacing w:before="80" w:after="160" w:line="500" w:lineRule="exact"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:color="888888"/><w:between w:val="single" w:sz="4" w:color="888888"/></w:pBdr></w:pPr><w:r><w:t xml:space="preserve"> </w:t></w:r></w:p>`).join("");
 }
 
 function paragraph(text, style = "Normal", keepNext = false) {

@@ -31,6 +31,7 @@ test("dictation Word has Chinese prompts and writing lines but no answer or answ
   assert.match(xml, /英语中文默写练习/);
   assert.match(xml, /名称/);
   assert.match(xml, /w:pBdr/);
+  assert.match(xml, /w:between/);
   assert.match(xml, /w:w="11906" w:h="16838"/);
   assert.doesNotMatch(xml, /name|First line|Second line|答案提示|备注：|英文：/);
   await assert.rejects(createUnmasteredDocx(data.assignments, { layout: "dictation" }), /缺少中文提示/);
