@@ -34,6 +34,8 @@ public class PlaybackInstrumentation extends Instrumentation {
     private void until(String script) throws Exception {
         long end = System.currentTimeMillis() + 20000;
         do {
+            String setupError = evaluate("window.lockError || ''");
+            if (!"\"\"".equals(setupError) && !"null".equals(setupError)) throw new AssertionError("Playback setup: " + setupError);
             if ("true".equals(evaluate("Boolean(" + script + ")"))) return;
             Thread.sleep(150);
         } while (System.currentTimeMillis() < end);
@@ -56,7 +58,7 @@ public class PlaybackInstrumentation extends Instrumentation {
             evaluate("localStorage.setItem('englishRecite.state.v1',JSON.stringify({activeAssignmentId:'lock',settings:{autoSpeak:false,repeat:1,playbackMode:'recall',answerWait:3},assignments:[{id:'lock',title:'锁屏测试',items:[{id:'one',prompt:'名称',answer:'name'},{id:'two',prompt:'朋友',answer:'friend'},{id:'three',prompt:'科学',answer:'science'}]}]}));location.reload();");
             until("document.getElementById('activeAssignmentTitle')?.textContent==='锁屏测试'");
             // Synthetic completions isolate lifecycle/timing from emulator voice-pack availability.
-            evaluate("(async()=>{const {playbackDelay}=await import('./playback-clock.js');window.lockCalls=[];window.lockMarker=17;window.AndroidTts={getStatus:()=> 'ready:test',getVoices:()=> '[]',speakLocalized(){},stop(){},speakWithVoice(text,lang,rate,repeat,id){window.lockCalls.push(text);playbackDelay(()=>window.dispatchEvent(new CustomEvent('native-tts-done',{detail:{id}})),120);}};window.lockReady=true;})();");
+            evaluate("(async()=>{const {playbackDelay}=await import(new URL('./playback-clock.js',location.href).href);window.lockCalls=[];window.lockMarker=17;window.AndroidTts={getStatus:()=> 'ready:test',getVoices:()=> '[]',speakLocalized(){},stop(){},speakWithVoice(text,lang,rate,repeat,id){window.lockCalls.push(text);playbackDelay(()=>window.dispatchEvent(new CustomEvent('native-tts-done',{detail:{id}})),120);}};window.lockReady=true;})().catch(e=>window.lockError=String(e.stack||e));");
             until("window.lockReady");
             evaluate("document.getElementById('startStudyButton').click();document.getElementById('continuousPlayButton').click();");
             until("window.lockCalls?.length===1");
@@ -76,7 +78,7 @@ public class PlaybackInstrumentation extends Instrumentation {
             try (InputStream stream = getContext().getAssets().open("continuous.mp3")) {
                 encoded = Base64.encodeToString(stream.readAllBytes(), Base64.NO_WRAP);
             }
-            evaluate("(async()=>{const {saveAudio}=await import('./audio-store.js');const bytes=Uint8Array.from(atob(" + JSONObject.quote(encoded) + "),c=>c.charCodeAt(0));const audio=await saveAudio('assignment:lock',new File([bytes],'test.mp3',{type:'audio/mpeg'}));const s=JSON.parse(localStorage.getItem('englishRecite.state.v1'));s.assignments[0].audio=audio;localStorage.setItem('englishRecite.state.v1',JSON.stringify(s));location.reload();})();");
+            evaluate("(async()=>{const {saveAudio}=await import(new URL('./audio-store.js',location.href).href);const bytes=Uint8Array.from(atob(" + JSONObject.quote(encoded) + "),c=>c.charCodeAt(0));const audio=await saveAudio('assignment:lock',new File([bytes],'test.mp3',{type:'audio/mpeg'}));const s=JSON.parse(localStorage.getItem('englishRecite.state.v1'));s.assignments[0].audio=audio;localStorage.setItem('englishRecite.state.v1',JSON.stringify(s));location.reload();})().catch(e=>window.lockError=String(e.stack||e));");
             until("typeof window.lockReady==='undefined' && document.getElementById('activeAssignmentTitle')?.textContent==='锁屏测试'");
             evaluate("const OriginalAudio=window.Audio;window.Audio=function(src){window.lockAudio=new OriginalAudio(src);return window.lockAudio;};document.getElementById('startStudyButton').click();document.getElementById('assignmentMp3Button').click();");
             until("window.lockAudio?.currentTime>0.2");

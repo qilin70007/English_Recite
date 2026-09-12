@@ -97,13 +97,14 @@ jobs:
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb shell pm grant com.qilin.englishrecite.debug android.permission.POST_NOTIFICATIONS
             adb shell am instrument -w com.qilin.englishrecite.debug.test/com.qilin.englishrecite.PlaybackInstrumentation | tee output/android-playback.txt
+            adb logcat -d -s chromium AndroidRuntime EnglishRecite > output/android-playback-logcat.txt
             grep -F "Background playback checks passed" output/android-playback.txt
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: English_Recite-Android-playback-checks
-          path: output/android-playback.txt
+          path: output/android-playback*.txt
           if-no-files-found: ignore
           retention-days: 7
 
