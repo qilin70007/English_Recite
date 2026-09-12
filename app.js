@@ -2107,8 +2107,9 @@ function bindEvents() {
   $$(".status-button").forEach((button) => button.addEventListener("click", () => markCurrentItem(button.dataset.status)));
 
   elements.alwaysShowAnswerInput.addEventListener("change", () => {
+    const checked = elements.alwaysShowAnswerInput.checked;
     if (!continuousPlaying) stopCardPlayback();
-    state.settings.alwaysShowAnswer = elements.alwaysShowAnswerInput.checked;
+    state.settings.alwaysShowAnswer = checked;
     saveState();
     if (!session) return;
     session.revealed = continuousPlaying ? recallPhase === "answer" : state.settings.alwaysShowAnswer;

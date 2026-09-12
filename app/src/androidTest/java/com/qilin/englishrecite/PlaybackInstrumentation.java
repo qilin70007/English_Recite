@@ -77,9 +77,7 @@ public class PlaybackInstrumentation extends Instrumentation {
                 encoded = Base64.encodeToString(stream.readAllBytes(), Base64.NO_WRAP);
             }
             evaluate("(async()=>{const {saveAudio}=await import('./audio-store.js');const bytes=Uint8Array.from(atob(" + JSONObject.quote(encoded) + "),c=>c.charCodeAt(0));const audio=await saveAudio('assignment:lock',new File([bytes],'test.mp3',{type:'audio/mpeg'}));const s=JSON.parse(localStorage.getItem('englishRecite.state.v1'));s.assignments[0].audio=audio;localStorage.setItem('englishRecite.state.v1',JSON.stringify(s));location.reload();})();");
-            until("document.getElementById('activeAssignmentTitle')?.textContent==='锁屏测试'");
-            // Wait for the reload to settle before wrapping the real HTMLAudioElement.
-            Thread.sleep(700);
+            until("typeof window.lockReady==='undefined' && document.getElementById('activeAssignmentTitle')?.textContent==='锁屏测试'");
             evaluate("const OriginalAudio=window.Audio;window.Audio=function(src){window.lockAudio=new OriginalAudio(src);return window.lockAudio;};document.getElementById('startStudyButton').click();document.getElementById('assignmentMp3Button').click();");
             until("window.lockAudio?.currentTime>0.2");
             shell("input keyevent KEYCODE_HOME");
