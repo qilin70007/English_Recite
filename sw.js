@@ -1,4 +1,4 @@
-const CACHE_NAME = "english-recite-v14";
+const CACHE_NAME = "english-recite-v15";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -6,6 +6,7 @@ const APP_SHELL = [
   "./core.js",
   "./review.js",
   "./playback-clock.js",
+  "./native-list.js",
   "./audio-store.js",
   "./assignment-player.js",
   "./icons.js",

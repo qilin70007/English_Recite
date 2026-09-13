@@ -17,6 +17,7 @@ import { icon, renderStaticIcons } from "./icons.js";
 import { readDocxText } from "./docx-import.js";
 import { normalizeLearning, setDifficulty, assessItem, configureReview, learningEntries } from "./review.js";
 import { playbackDelay, cancelPlaybackDelay } from "./playback-clock.js";
+import { prepareNativeList } from "./native-list.js";
 
 const STORAGE_KEY = "englishRecite.state.v1";
 const OCR_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
@@ -291,6 +292,8 @@ let speechRunId = 0;
 let continuousPlaying = false;
 let continuousRunId = 0;
 let continuousTimer = null;
+let nativeListRun = "";
+let nativeListSequence = -1;
 let recallPhase = "";
 let recallDeadline = 0;
 let nativePlaybackActive = false;
@@ -751,13 +754,17 @@ function markCurrentItem(status) {
   const assignment = getSessionAssignment();
   if (!item || !assignment) return;
   const keepPlaying = continuousPlaying;
-  stopCardPlayback();
-  continuousPlaying = keepPlaying;
+  const nativePlaying = Boolean(nativeListRun);
+  if (!nativePlaying) {
+    stopCardPlayback();
+    continuousPlaying = keepPlaying;
+  }
   assessItem(item, status, assignment.reviewEnabled);
   renderReviewHome();
   assignment.updatedAt = new Date().toISOString();
   saveState();
   renderStudy();
+  if (nativePlaying) { moveItem(1); return; }
   markAdvanceTimer = window.setTimeout(() => {
     markAdvanceTimer = null;
     moveItem(1);
@@ -766,6 +773,12 @@ function markCurrentItem(status) {
 
 function moveItem(direction) {
   if (!session) return;
+  if (nativeListRun && continuousPlaying) {
+    syncNativeListState();
+    const nextIndex = (session.index + direction + session.entries.length) % session.entries.length;
+    try { window.AndroidList.seek(nativeListRun, nextIndex); } catch { stopCardPlayback(); }
+    return;
+  }
   const keepPlaying = continuousPlaying;
   stopCardPlayback();
   const nextIndex = keepPlaying ? (session.index + direction + session.entries.length) % session.entries.length : session.index + direction;
@@ -889,6 +902,12 @@ function stopSpeech() {
 
 function stopCardPlayback() {
   const wasRecall = continuousPlaying && state.settings.playbackMode === "recall";
+  const stoppedRun = nativeListRun;
+  nativeListRun = "";
+  nativeListSequence = -1;
+  if (stoppedRun) {
+    try { window.AndroidList?.stop(stoppedRun); } catch { /* The local queue is still invalidated. */ }
+  }
   if (markAdvanceTimer !== null) {
     clearTimeout(markAdvanceTimer);
     markAdvanceTimer = null;
@@ -1196,7 +1215,55 @@ function startListPlayback() {
   assignmentPlayer.pause();
   continuousPlaying = true;
   const runId = ++continuousRunId;
+  if (typeof window.AndroidList?.start === "function") {
+    nativeListRun = `queue-${runId}-${Date.now()}`;
+    nativeListSequence = -1;
+    const run = nativeListRun;
+    const items = session.entries.map((entry) => state.assignments.find((a) => a.id === entry.assignmentId)?.items.find((i) => i.id === entry.itemId)).filter(Boolean);
+    recallPhase = state.settings.playbackMode === "recall" && getCurrentItem()?.prompt?.trim() ? "prompt" : "answer";
+    session.revealed = recallPhase === "answer";
+    renderStudy();
+    prepareNativeList(window.AndroidList, run, items, session.index, state.settings, getAudio,
+      () => continuousPlaying && nativeListRun === run && continuousRunId === runId).catch((error) => {
+      if (nativeListRun !== run) return;
+      stopCardPlayback();
+      showToast(error.message || "播放清单准备失败，请重试。", 4000);
+    });
+    return;
+  }
   playContinuousItem(runId);
+}
+
+function receiveNativeListState(state) {
+  if (!session || !nativeListRun || state?.run !== nativeListRun || !Number.isInteger(state.index)
+      || state.index < 0 || state.index >= session.entries.length || state.sequence <= nativeListSequence) return;
+  nativeListSequence = state.sequence;
+  session.index = state.index;
+  if (!state.playing) {
+    stopCardPlayback();
+    renderStudy();
+    if (state.error) showToast(state.error, 4500);
+    return;
+  }
+  recallPhase = state.phase;
+  recallDeadline = Number(state.deadline) || 0;
+  session.revealed = recallPhase === "answer";
+  cancelPlaybackDelay(continuousTimer);
+  renderStudy();
+  if (!document.hidden) keepStudyCardInView();
+  // This timer only paints the countdown; native code owns the answer deadline.
+  const run = nativeListRun;
+  const tick = () => {
+    if (nativeListRun !== run || recallPhase !== "wait" || document.hidden) return;
+    updateRecallDisplay();
+    continuousTimer = playbackDelay(tick, 500);
+  };
+  if (recallPhase === "wait") tick();
+}
+
+function syncNativeListState() {
+  if (!nativeListRun) return;
+  try { receiveNativeListState(JSON.parse(window.AndroidList.getState())); } catch { /* Next native event will resync. */ }
 }
 
 function toggleContinuousPlay() {
@@ -2074,8 +2141,9 @@ function bindEvents() {
   });
   window.addEventListener("native-playback-stop", () => { stopSpeechAndContinuous(); if (session) renderStudy(); });
   window.addEventListener("native-playback-error", () => { stopSpeechAndContinuous(); showToast("后台播放未能启动，请保持软件在前台后重试。", 4000); });
+  window.addEventListener("native-list-state", (event) => receiveNativeListState(event.detail));
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) { renderReviewHome(); updateRecallDisplay(); }
+    if (!document.hidden) { syncNativeListState(); renderReviewHome(); updateRecallDisplay(); }
   });
   elements.startStudyButton.addEventListener("click", () => startStudy("all"));
   elements.focusStudyButton.addEventListener("click", () => startStudy("focus"));

@@ -11,8 +11,8 @@ android {
         minSdk 24
         targetSdk 36
         testInstrumentationRunner "com.qilin.englishrecite.PlaybackInstrumentation"
-        versionCode 12
-        versionName "1.9.0"
+        versionCode 13
+        versionName "1.9.1"
     }
 
     buildTypes {
@@ -50,6 +50,7 @@ def syncWebAssets = tasks.register("syncWebAssets", Sync) {
         include "core.js"
         include "review.js"
         include "playback-clock.js"
+        include "native-list.js"
         include "audio-store.js"
         include "assignment-player.js"
         include "icons.js"

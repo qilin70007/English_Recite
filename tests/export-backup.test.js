@@ -30,11 +30,22 @@ test("dictation Word has Chinese prompts and writing lines but no answer or answ
   const xml = await (await zip.get("word/document.xml").read()).text();
   assert.match(xml, /英语中文默写练习/);
   assert.match(xml, /名称/);
-  assert.match(xml, /w:pBdr/);
-  assert.match(xml, /w:between/);
+  assert.match(xml, /w:leader="underscore"/);
   assert.match(xml, /w:w="11906" w:h="16838"/);
-  assert.doesNotMatch(xml, /name|First line|Second line|答案提示|备注：|英文：/);
+  assert.doesNotMatch(xml, /name|First line|Second line|答案提示|备注：|英文：|不认识|模糊|未标记|中文提示：|范围：/);
+  const styles = await (await zip.get("word/styles.xml").read()).text();
+  assert.match(styles, /w:styleId="DictationEntry"[\s\S]*?w:sz w:val="32"/);
   await assert.rejects(createUnmasteredDocx(data.assignments, { layout: "dictation" }), /缺少中文提示/);
+});
+
+test("long dictation prompts stay complete and text retains expandable ruled writing space", async () => {
+  const prompt = "我们应该互相帮助，一起适应新的学校生活。".repeat(5);
+  const docx = await createUnmasteredDocx([{ id: "long", title: "课文", type: "text", items: [{ prompt, answer: "A long English passage. ".repeat(30), status: "unknown" }] }], { layout: "dictation" });
+  const zip = await openZip(docx);
+  const xml = await (await zip.get("word/document.xml").read()).text();
+  assert.ok(xml.includes(prompt));
+  assert.match(xml, /w:between/);
+  assert.doesNotMatch(xml, /A long English|不认识/);
 });
 
 test("ZIP is binary, uses standard CRC32, and supports Unicode paths and chunk boundaries", async () => {

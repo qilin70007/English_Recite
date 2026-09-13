@@ -10,6 +10,7 @@ import android.content.pm.ResolveInfo;
 import android.graphics.Color;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
+import android.media.AudioFocusRequest;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Build;
@@ -78,6 +79,9 @@ public class MainActivity extends Activity {
     private String finalUtteranceId;
     private AudioManager audioManager;
     private boolean ttsAudioFocus;
+    private AudioFocusRequest speechFocusRequest;
+    private NativeListPlayer nativeListPlayer;
+    private final Map<String, File> listAudioFolders = new HashMap<>();
     private final AudioManager.OnAudioFocusChangeListener ttsFocusListener = focusChange -> {
         if (focusChange == AudioManager.AUDIOFOCUS_LOSS || focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
             mainHandler.post(this::stopBackgroundPlayback);
@@ -135,6 +139,16 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         getWindow().setStatusBarColor(Color.rgb(49, 94, 85));
         setContentView(R.layout.activity_main);
+        nativeListPlayer = new NativeListPlayer(this, new NativeListPlayer.Host() {
+            public void speak(String text, String language, float rate, String voice, String id) {
+                queueSpeech(text, language, rate, 1, id, voice);
+            }
+            public void stopSpeech() { stopNativeSpeech(); }
+            public boolean requestFocus() { return requestSpeechAudioFocus(); }
+            public void stateChanged(String state) { publishListState(state); }
+            public void ended() { setPlaybackActive(false); }
+        });
+        clearListAudio(new File(getCacheDir(), "recite-list"));
         initializePreferredTts();
         configureWebView(savedInstanceState);
         PlaybackService.stopListener = this::stopBackgroundPlayback;
@@ -218,6 +232,7 @@ public class MainActivity extends Activity {
         });
 
         webView.addJavascriptInterface(new AndroidTtsBridge(), "AndroidTts");
+        webView.addJavascriptInterface(new AndroidListBridge(), "AndroidList");
         webView.addJavascriptInterface(new AndroidFilesBridge(), "AndroidFiles");
         webView.addJavascriptInterface(new AndroidPlaybackBridge(), "AndroidPlayback");
         webView.requestFocusFromTouch();
@@ -498,7 +513,10 @@ public class MainActivity extends Activity {
         engine.stop();
         engine.setSpeechRate(Math.max(0.5f, Math.min(2f, speech.rate)));
         engine.setPitch(1.0f);
-        requestSpeechAudioFocus();
+        if (!requestSpeechAudioFocus()) {
+            dispatchTtsEvent("native-tts-error", speech.requestId);
+            return;
+        }
 
         int safeRepeat = Math.max(1, Math.min(3, speech.repeat));
         synchronized (this) {
@@ -640,23 +658,31 @@ public class MainActivity extends Activity {
     }
 
     @SuppressWarnings("deprecation")
-    private void requestSpeechAudioFocus() {
+    private boolean requestSpeechAudioFocus() {
+        if (ttsAudioFocus) return true;
         if (audioManager == null) {
             audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         }
-        if (audioManager == null) return;
-        int result = audioManager.requestAudioFocus(
-                ttsFocusListener,
-                AudioManager.STREAM_MUSIC,
-                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
-        );
+        if (audioManager == null) return false;
+        int result;
+        if (Build.VERSION.SDK_INT >= 26) {
+            if (speechFocusRequest == null) speechFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                    .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                    .setOnAudioFocusChangeListener(ttsFocusListener, mainHandler).build();
+            result = audioManager.requestAudioFocus(speechFocusRequest);
+        } else result = audioManager.requestAudioFocus(ttsFocusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
         ttsAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        return ttsAudioFocus;
     }
 
     @SuppressWarnings("deprecation")
     private void releaseSpeechAudioFocus() {
+        // A list retains focus through Chinese/English transitions and silent recall waits.
+        if (nativeListPlayer != null && nativeListPlayer.isPlaying()) return;
         if (ttsAudioFocus && audioManager != null) {
-            audioManager.abandonAudioFocus(ttsFocusListener);
+            if (Build.VERSION.SDK_INT >= 26 && speechFocusRequest != null) audioManager.abandonAudioFocusRequest(speechFocusRequest);
+            else audioManager.abandonAudioFocus(ttsFocusListener);
         }
         ttsAudioFocus = false;
     }
@@ -672,6 +698,8 @@ public class MainActivity extends Activity {
     }
 
     private void dispatchTtsEvent(String eventName, String requestId) {
+        if (nativeListPlayer != null && ("native-tts-done".equals(eventName) || "native-tts-error".equals(eventName))
+                && nativeListPlayer.speechFinished(requestId, "native-tts-done".equals(eventName))) return;
         if (requestId == null || webView == null) return;
         String script = "window.dispatchEvent(new CustomEvent("
                 + JSONObject.quote(eventName)
@@ -686,6 +714,7 @@ public class MainActivity extends Activity {
     }
 
     private void stopBackgroundPlayback() {
+        if (nativeListPlayer != null) nativeListPlayer.stop();
         playbackActive = false;
         for (Runnable task : playbackTimers.values()) mainHandler.removeCallbacks(task);
         playbackTimers.clear();
@@ -694,35 +723,99 @@ public class MainActivity extends Activity {
         mainHandler.postDelayed(stopPlaybackService, 500);
     }
 
+    private void setPlaybackActive(boolean active) {
+        mainHandler.removeCallbacks(stopPlaybackService);
+        if (!active) {
+            playbackActive = false;
+            mainHandler.postDelayed(stopPlaybackService, 500);
+            return;
+        }
+        boolean alreadyActive = playbackActive;
+        playbackActive = true;
+        if (webView != null) webView.onResume();
+        if (alreadyActive) return;
+        try {
+            Intent intent = new Intent(this, PlaybackService.class);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
+            else startService(intent);
+            if (Build.VERSION.SDK_INT >= 33 && !notificationRequested
+                    && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                notificationRequested = true;
+                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 503);
+            }
+        } catch (RuntimeException error) {
+            playbackActive = false;
+            if (nativeListPlayer != null) nativeListPlayer.stop();
+            stopService(new Intent(this, PlaybackService.class));
+            playbackEvent("native-playback-error");
+        }
+    }
+
+    private void publishListState(String state) {
+        if (webView == null || activityPaused) return;
+        webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('native-list-state',{detail:" + state + "}));", null);
+    }
+
+    String listPlaybackState() { return nativeListPlayer == null ? "{}" : nativeListPlayer.getState(); }
+
+    private static void clearListAudio(File folder) {
+        File[] files = folder.listFiles();
+        if (files != null) for (File file : files) clearListAudio(file);
+        folder.delete();
+    }
+
+    private final class AndroidListBridge {
+        @JavascriptInterface public boolean prepare(String run) {
+            if (run == null || run.length() > 100) return false;
+            synchronized (listAudioFolders) {
+                if (listAudioFolders.containsKey(run)) return false;
+                File folder = new File(getCacheDir(), "recite-list/" + UUID.randomUUID());
+                if (!folder.mkdirs()) return false;
+                listAudioFolders.put(run, folder);
+                return true;
+            }
+        }
+        @JavascriptInterface public boolean appendAudio(String run, int index, String chunk) {
+            if (index < 0 || index > 100000 || chunk == null || chunk.length() > 90000) return false;
+            synchronized (listAudioFolders) {
+                File folder = listAudioFolders.get(run);
+                if (folder == null) return false;
+                try (FileOutputStream stream = new FileOutputStream(new File(folder, index + ".mp3"), true)) {
+                    stream.write(Base64.decode(chunk, Base64.NO_WRAP));
+                    return true;
+                } catch (Exception error) { return false; }
+            }
+        }
+        @JavascriptInterface public void start(String run, String json) {
+            mainHandler.post(() -> {
+                File folder;
+                synchronized (listAudioFolders) { folder = listAudioFolders.get(run); }
+                if (folder == null) return; // Cancelled during asynchronous audio preparation.
+                try {
+                    JSONObject payload = new JSONObject(json);
+                    nativeListPlayer.stop();
+                    setPlaybackActive(true);
+                    if (playbackActive) nativeListPlayer.start(run, payload, folder);
+                } catch (Exception error) { stopBackgroundPlayback(); playbackEvent("native-playback-error"); }
+            });
+        }
+        @JavascriptInterface public void seek(String run, int index) { mainHandler.post(() -> nativeListPlayer.seek(run, index)); }
+        @JavascriptInterface public String getState() { return listPlaybackState(); }
+        @JavascriptInterface public void stop(String run) {
+            mainHandler.post(() -> {
+                if (run != null && run.equals(nativeListPlayer.runId())) nativeListPlayer.stop();
+                synchronized (listAudioFolders) {
+                    File folder = listAudioFolders.remove(run);
+                    if (folder != null) clearListAudio(folder);
+                }
+            });
+        }
+    }
+
     private final class AndroidPlaybackBridge {
         @JavascriptInterface
         public void setActive(boolean active) {
-            runOnUiThread(() -> {
-                mainHandler.removeCallbacks(stopPlaybackService);
-                if (!active) {
-                    playbackActive = false;
-                    mainHandler.postDelayed(stopPlaybackService, 500);
-                    return;
-                }
-                boolean alreadyActive = playbackActive;
-                playbackActive = true;
-                if (webView != null) webView.onResume();
-                if (alreadyActive) return;
-                try {
-                    Intent intent = new Intent(MainActivity.this, PlaybackService.class);
-                    if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
-                    else startService(intent);
-                    if (Build.VERSION.SDK_INT >= 33 && !notificationRequested
-                            && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                        notificationRequested = true;
-                        requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 503);
-                    }
-                } catch (RuntimeException error) {
-                    playbackActive = false;
-                    stopService(new Intent(MainActivity.this, PlaybackService.class));
-                    playbackEvent("native-playback-error");
-                }
-            });
+            runOnUiThread(() -> setPlaybackActive(active));
         }
 
         @JavascriptInterface
@@ -987,6 +1080,7 @@ public class MainActivity extends Activity {
         super.onResume();
         activityPaused = false;
         if (webView != null) webView.onResume();
+        if (nativeListPlayer != null) publishListState(nativeListPlayer.getState());
         if (returningFromTtsSettings || (ttsInitFailed && !ttsInitializing)) {
             returningFromTtsSettings = false;
             initializePreferredTts();
@@ -1027,6 +1121,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (nativeListPlayer != null) nativeListPlayer.stop();
         playbackActive = false;
         PlaybackService.stopListener = null;
         stopService(new Intent(this, PlaybackService.class));
@@ -1053,11 +1148,16 @@ public class MainActivity extends Activity {
         ttsInitializing = false;
         if (webView != null) {
             webView.removeJavascriptInterface("AndroidTts");
+            webView.removeJavascriptInterface("AndroidList");
             webView.removeJavascriptInterface("AndroidFiles");
             webView.removeJavascriptInterface("AndroidPlayback");
             webView.stopLoading();
             webView.destroy();
             webView = null;
+        }
+        synchronized (listAudioFolders) {
+            for (File folder : listAudioFolders.values()) clearListAudio(folder);
+            listAudioFolders.clear();
         }
         super.onDestroy();
     }

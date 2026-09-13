@@ -35,6 +35,9 @@ jobs:
       - name: Check mobile UI and speech dispatch
         run: npm run test:ui
 
+      - name: Include CJK font for print preview verification
+        run: cp "$(fc-match -f '%{file}' 'sans-serif:lang=zh')" output/ui/preview-cjk-font.ttc
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -96,8 +99,9 @@ jobs:
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb shell pm grant com.qilin.englishrecite.debug android.permission.POST_NOTIFICATIONS
+            adb shell settings put secure tts_default_synth com.qilin.englishrecite.debug.test
             adb shell am instrument -w com.qilin.englishrecite.debug.test/com.qilin.englishrecite.PlaybackInstrumentation | tee output/android-playback.txt
-            adb logcat -d -s chromium AndroidRuntime EnglishRecite > output/android-playback-logcat.txt
+            adb logcat -d -s chromium AndroidRuntime EnglishRecite ReciteFixtureTts > output/android-playback-logcat.txt
             grep -F "Background playback checks passed" output/android-playback.txt
 
       - uses: actions/upload-artifact@v4
@@ -111,11 +115,11 @@ jobs:
       - name: Prepare download file
         run: |
           mkdir -p output
-          cp app/build/outputs/apk/debug/app-debug.apk output/English_Recite_v1.9.0.apk
+          cp app/build/outputs/apk/debug/app-debug.apk output/English_Recite_v1.9.1.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: English_Recite-Android
-          path: output/English_Recite_v1.9.0.apk
+          path: output/English_Recite_v1.9.1.apk
           if-no-files-found: error
           retention-days: 30
