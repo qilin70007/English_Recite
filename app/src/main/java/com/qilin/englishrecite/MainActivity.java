@@ -146,7 +146,13 @@ public class MainActivity extends Activity {
             public void stopSpeech() { stopNativeSpeech(); }
             public boolean requestFocus() { return requestSpeechAudioFocus(); }
             public void stateChanged(String state) { publishListState(state); }
-            public void ended() { setPlaybackActive(false); }
+            public void ended() {
+                synchronized (listAudioFolders) {
+                    File folder = listAudioFolders.remove(nativeListPlayer.runId());
+                    if (folder != null) clearListAudio(folder);
+                }
+                setPlaybackActive(false);
+            }
         });
         clearListAudio(new File(getCacheDir(), "recite-list"));
         initializePreferredTts();
@@ -468,6 +474,7 @@ public class MainActivity extends Activity {
         String failedRequest;
         synchronized (this) {
             if (generation != ttsGeneration || activeRequestId == null) return;
+            if (utteranceId != null && !utteranceId.startsWith(activeRequestId + "-")) return;
             failedRequest = activeRequestId;
             activeRequestId = null;
             finalUtteranceId = null;

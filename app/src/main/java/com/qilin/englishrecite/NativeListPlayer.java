@@ -200,7 +200,7 @@ final class NativeListPlayer {
                 releaseAudio();
                 nextStep();
             });
-            player.setOnErrorListener((p, what, extra) -> { audioFailed(token); return true; });
+            player.setOnErrorListener((p, what, extra) -> { if (audio == p) audioFailed(token); return true; });
             player.prepareAsync();
         } catch (Exception error) { audioFailed(token); }
     }

@@ -775,7 +775,14 @@ function moveItem(direction) {
   if (!session) return;
   if (nativeListRun && continuousPlaying) {
     syncNativeListState();
+    if (!nativeListRun) { moveItem(direction); return; }
     const nextIndex = (session.index + direction + session.entries.length) % session.entries.length;
+    if (nativeListSequence < 0) {
+      stopCardPlayback();
+      session.index = nextIndex;
+      startListPlayback();
+      return;
+    }
     try { window.AndroidList.seek(nativeListRun, nextIndex); } catch { stopCardPlayback(); }
     return;
   }
@@ -1234,9 +1241,10 @@ function startListPlayback() {
   playContinuousItem(runId);
 }
 
-function receiveNativeListState(state) {
+function receiveNativeListState(state, refresh = false) {
   if (!session || !nativeListRun || state?.run !== nativeListRun || !Number.isInteger(state.index)
-      || state.index < 0 || state.index >= session.entries.length || state.sequence <= nativeListSequence) return;
+      || state.index < 0 || state.index >= session.entries.length || state.sequence < nativeListSequence
+      || (!refresh && state.sequence === nativeListSequence)) return;
   nativeListSequence = state.sequence;
   session.index = state.index;
   if (!state.playing) {
@@ -1263,7 +1271,7 @@ function receiveNativeListState(state) {
 
 function syncNativeListState() {
   if (!nativeListRun) return;
-  try { receiveNativeListState(JSON.parse(window.AndroidList.getState())); } catch { /* Next native event will resync. */ }
+  try { receiveNativeListState(JSON.parse(window.AndroidList.getState()), true); } catch { /* Next native event will resync. */ }
 }
 
 function toggleContinuousPlay() {

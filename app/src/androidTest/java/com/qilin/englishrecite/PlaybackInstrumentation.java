@@ -98,6 +98,10 @@ public class PlaybackInstrumentation extends Instrumentation {
             // real TextToSpeech completion/focus path advances the native queue.
             evaluate("window.lockMarker=17;document.getElementById('startStudyButton').click();document.getElementById('continuousPlayButton').click();");
             untilNative(s -> s.optBoolean("playing") && s.optString("phase").equals("wait"));
+            evaluate("document.getElementById('nextItemButton').click();");
+            untilNative(s -> s.optInt("index") == 1 && s.optString("phase").equals("wait"));
+            evaluate("document.getElementById('previousItemButton').click();");
+            untilNative(s -> s.optInt("index") == 0 && s.optString("phase").equals("wait"));
             lockAndFreezeWebTimers();
             Thread.sleep(65000);
             JSONObject state = nativeState();
