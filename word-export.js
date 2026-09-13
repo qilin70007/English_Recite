@@ -21,7 +21,7 @@ function writingSpace(item, type) {
   const words = String(item.answer || "").trim().split(/\s+/).length;
   const lines = type === "text" ? Math.max(4, Math.min(120, Math.ceil(words / 8)))
     : type === "sentence" || words > 8 ? Math.max(2, Math.min(8, Math.ceil(words / 8))) : 1;
-  return Array.from({ length: lines }, (_, index) => `<w:p><w:pPr>${index === 0 && lines > 1 ? "<w:keepNext/>" : ""}<w:spacing w:before="0" w:after="100" w:line="440" w:lineRule="atLeast"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:color="888888"/><w:between w:val="single" w:sz="4" w:color="888888"/></w:pBdr></w:pPr><w:r><w:t xml:space="preserve"> </w:t></w:r></w:p>`).join("");
+  return Array.from({ length: lines }, (_, index) => `<w:p><w:pPr>${index === 0 && lines > 1 ? "<w:keepNext/>" : ""}<w:tabs><w:tab w:val="right" w:leader="underscore" w:pos="10466"/></w:tabs><w:spacing w:before="0" w:after="0" w:line="540" w:lineRule="atLeast"/></w:pPr><w:r><w:rPr><w:color w:val="888888"/></w:rPr><w:tab/></w:r></w:p>`).join("");
 }
 
 function dictationEntry(item, index, type) {
@@ -79,7 +79,7 @@ export async function createUnmasteredDocx(assignments, { scope = "all", statuse
     <w:style w:type="paragraph" w:styleId="Prompt"><w:name w:val="Chinese prompt"/><w:basedOn w:val="Normal"/></w:style>
     <w:style w:type="paragraph" w:styleId="Answer"><w:name w:val="English answer"/><w:basedOn w:val="Normal"/></w:style>
     <w:style w:type="paragraph" w:styleId="Note"><w:name w:val="Note"/><w:basedOn w:val="Normal"/><w:rPr><w:sz w:val="22"/></w:rPr></w:style>
-    <w:style w:type="paragraph" w:styleId="DictationEntry"><w:name w:val="Dictation entry"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:before="0" w:after="360" w:line="520" w:lineRule="atLeast"/></w:pPr><w:rPr><w:sz w:val="32"/><w:szCs w:val="32"/></w:rPr></w:style>
+    <w:style w:type="paragraph" w:styleId="DictationEntry"><w:name w:val="Dictation entry"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:before="0" w:after="280" w:line="520" w:lineRule="atLeast"/></w:pPr><w:rPr><w:sz w:val="32"/><w:szCs w:val="32"/></w:rPr></w:style>
     <w:style w:type="paragraph" w:styleId="DictationPrompt"><w:name w:val="Dictation prompt"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:before="80" w:after="0" w:line="400" w:lineRule="atLeast"/><w:keepNext/></w:pPr><w:rPr><w:sz w:val="32"/><w:szCs w:val="32"/></w:rPr></w:style>
   </w:styles>`;
   const files = {

@@ -44,7 +44,7 @@ test("long dictation prompts stay complete and text retains expandable ruled wri
   const zip = await openZip(docx);
   const xml = await (await zip.get("word/document.xml").read()).text();
   assert.ok(xml.includes(prompt));
-  assert.match(xml, /w:between/);
+  assert.ok((xml.match(/w:leader="underscore"/g) || []).length >= 8);
   assert.doesNotMatch(xml, /A long English|不认识/);
 });
 
