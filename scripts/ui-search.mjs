@@ -47,6 +47,7 @@ export async function runSearchChecks(browser, baseURL, shots, errors) {
     assert.equal(await page.locator('#answerText').textContent(), 'We learn together.\nWe help each other.\nEnjoy learning every day.');
     await page.locator('#searchButton').click();
     await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#searchDialog').evaluate(e => e.open), false);
     assert.equal(await page.locator('#studyCounter').textContent(), '2 / 3', 'closing search preserves current card');
     for (const viewport of [{ width: 640, height: 360 }, { width: 812, height: 375 }, { width: 960, height: 540 }, { width: 1280, height: 900 }, { width: 390, height: 844 }]) {
       await page.setViewportSize(viewport);

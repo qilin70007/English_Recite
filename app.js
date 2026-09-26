@@ -2143,6 +2143,19 @@ function closeDialogById(id) {
 
 function bindEvents() {
   elements.searchButton.addEventListener("click", openSearch);
+  elements.searchDialog.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      elements.searchDialog.close();
+    }
+  });
+  elements.searchInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.isComposing) {
+      event.preventDefault();
+      elements.searchInput.blur();
+    }
+  });
   elements.searchInput.addEventListener("input", () => renderSearch());
   elements.searchScopeSelect.addEventListener("change", () => renderSearch());
   elements.clearSearchButton.addEventListener("click", () => {
