@@ -31,7 +31,7 @@ export function hasLatin(value = "") {
 function cleanPart(value = "") {
   return stripListPrefix(value)
     .replace(/^\s*[|｜→⇒]+\s*|\s*[|｜→⇒]+\s*$/g, "")
-    .replace(/\s+/g, " ")
+    .replace(/[^\S\n]+/g, " ")
     .trim();
 }
 
@@ -162,7 +162,7 @@ export function parseJsonItems(text) {
 function parseParagraphs(text) {
   return normalizeText(text)
     .split(/\n\s*\n+/)
-    .map((paragraph) => paragraph.replace(/\s*\n\s*/g, " ").trim())
+    .map((paragraph) => paragraph.trim())
     .filter(Boolean)
     .map((answer) => ({ prompt: "", answer }));
 }

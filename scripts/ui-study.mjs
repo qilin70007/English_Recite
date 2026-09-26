@@ -76,11 +76,16 @@ export async function runStudyChecks(browser, baseURL, shots, errors) {
           noHorizontalOverflow: document.documentElement.scrollWidth <= innerWidth,
         };
       });
-      assert.ok(Math.abs(layout.title.centerX - viewport.width / 2) <= 0.6, "app title is centered on the screen");
-      assert.ok(layout.card.top >= layout.topbar.bottom && layout.card.top <= 160, `card starts in the main viewing area at ${viewport.width}px`);
+      const landscape = viewport.width > viewport.height && viewport.width >= 600;
+      if (landscape) {
+        assert.ok(layout.title.right <= layout.card.left && layout.card.top <= 10, "landscape title is on the left and card starts at the top");
+      } else {
+        assert.ok(Math.abs(layout.title.centerX - viewport.width / 2) <= 0.6, "portrait app title is centered");
+        assert.ok(layout.card.top >= layout.topbar.bottom && layout.card.top <= 160, `card starts in the main viewing area at ${viewport.width}px`);
+      }
       assert.ok(layout.counter.top >= layout.card.top && Math.abs(layout.counter.centerX - layout.card.centerX) <= 0.6, "number progress is centered within the card");
       assert.ok(Math.abs(layout.counter.centerY - layout.status.centerY) <= 1 && Math.abs(layout.counter.centerY - layout.edit.centerY) <= 1, "status, progress and edit share the card's top row");
-      assert.ok(layout.preferences.top >= layout.next.bottom + 16 && layout.filters.top - layout.preferences.bottom >= 0 && layout.filters.top - layout.preferences.bottom <= 12, "overview and reading controls sit immediately above scope filters, after navigation");
+      assert.ok(layout.preferences.top >= layout.next.bottom + (landscape ? 8 : 16) && layout.filters.top - layout.preferences.bottom >= 0 && layout.filters.top - layout.preferences.bottom <= 12, "overview and reading controls sit immediately above scope filters, after navigation");
       assert.ok(layout.toggle.left >= layout.overview.right + 4 && layout.toggle.left - layout.overview.right <= 16 && Math.abs(layout.toggle.centerY - layout.overview.centerY) <= 1, "English switch sits beside overview instead of the far right");
       assert.ok(layout.speak.left >= layout.toggle.right + 4 && Math.abs(layout.speak.centerY - layout.toggle.centerY) <= 1, "read button sits to the right of the English switch");
       assert.ok(layout.noHorizontalOverflow, `no horizontal overflow at ${viewport.width}px`);

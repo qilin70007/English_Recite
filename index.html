@@ -22,6 +22,7 @@
             <small>每天背一点，记得更牢</small>
           </span>
         </button>
+        <button class="button button-quiet search-button" id="searchButton" type="button" aria-label="搜索背诵内容" aria-haspopup="dialog" aria-controls="searchDialog"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><span>搜索</span></button>
       </header>
 
       <div class="main-layout">
@@ -156,7 +157,7 @@
                 </div></div>
 
                 <div class="prompt-area" id="promptArea">
-                  <h2 id="promptText">准备开始</h2>
+                  <h2 id="promptText" lang="zh-CN">准备开始</h2>
                 </div>
 
                 <button class="answer-panel concealed" id="answerPanel" type="button" aria-expanded="false">
@@ -164,7 +165,7 @@
                     <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>
                     点一下查看英文答案
                   </span>
-                  <span class="answer-copy" id="answerText"></span>
+                  <span class="answer-copy" id="answerText" lang="en"></span>
                   <span id="recallCountdown" class="recall-countdown" hidden></span>
                 </button>
 
@@ -230,6 +231,19 @@
         <button id="settingsButton" type="button" data-action="settings" aria-label="朗读与数据设置" aria-haspopup="dialog" aria-controls="settingsDialog"><span data-icon="settings" aria-hidden="true"></span><span>设置</span></button>
       </nav>
     </div>
+
+    <dialog class="modal search-modal" id="searchDialog" aria-labelledby="searchTitle">
+      <div class="search-card">
+        <header class="modal-header"><h2 id="searchTitle">搜索背诵内容</h2><button class="icon-button" type="button" data-close-dialog="searchDialog" aria-label="关闭搜索"><span data-icon="close" aria-hidden="true"></span></button></header>
+        <div class="search-fields">
+          <label class="sr-only" for="searchInput">中文、英文或作业本名称</label>
+          <div class="search-input-row"><input id="searchInput" type="search" placeholder="中文、英文或作业本名称" autocomplete="off" enterkeyhint="search" autofocus /><button class="text-button" id="clearSearchButton" type="button" disabled>清空</button></div>
+          <label class="field"><span class="sr-only">搜索范围</span><select id="searchScopeSelect" aria-label="搜索范围"></select></label>
+        </div>
+        <p class="field-help" id="searchSummary" role="status" aria-live="polite">输入关键词，点击结果定位背诵。</p>
+        <div class="search-results-body" id="searchResultsBody"><ol class="search-results" id="searchResults" aria-label="搜索结果"></ol><button class="button button-secondary" id="moreSearchButton" type="button" hidden>显示更多</button></div>
+      </div>
+    </dialog>
 
     <dialog class="modal whole-assignment-modal" id="wholeAssignmentDialog" aria-labelledby="wholeAssignmentTitle" aria-describedby="wholeAssignmentMeta">
       <div class="whole-assignment-card">

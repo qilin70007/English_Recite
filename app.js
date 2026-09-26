@@ -18,6 +18,7 @@ import { readDocxText } from "./docx-import.js";
 import { normalizeLearning, setDifficulty, assessItem, configureReview, learningEntries } from "./review.js";
 import { playbackDelay, cancelPlaybackDelay } from "./playback-clock.js";
 import { prepareNativeList } from "./native-list.js";
+import { searchEntries } from "./search.js";
 
 const STORAGE_KEY = "englishRecite.state.v1";
 const OCR_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
@@ -58,6 +59,15 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
 const elements = {
+  searchButton: $("#searchButton"),
+  searchDialog: $("#searchDialog"),
+  searchInput: $("#searchInput"),
+  searchScopeSelect: $("#searchScopeSelect"),
+  searchSummary: $("#searchSummary"),
+  searchResults: $("#searchResults"),
+  searchResultsBody: $("#searchResultsBody"),
+  clearSearchButton: $("#clearSearchButton"),
+  moreSearchButton: $("#moreSearchButton"),
   todayReviewButton: $("#todayReviewButton"),
   todayReviewHint: $("#todayReviewHint"),
   reviewPlanButton: $("#reviewPlanButton"),
@@ -571,6 +581,38 @@ function openWholeAssignment(id) {
   elements.wholeAssignmentBody.scrollTop = 0;
 }
 
+let searchLimit = 40;
+
+function openSearch() {
+  const previousScope = elements.searchScopeSelect.value;
+  elements.searchScopeSelect.innerHTML = '<option value="all">所有作业本</option>' + state.assignments
+    .map((a) => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.title)}</option>`).join("");
+  elements.searchScopeSelect.value = state.assignments.some((a) => a.id === previousScope) ? previousScope : "all";
+  renderSearch();
+  elements.searchDialog.showModal();
+  elements.searchInput.focus();
+}
+
+function renderSearch(append = false) {
+  if (!append) searchLimit = 40;
+  const query = elements.searchInput.value.trim();
+  const results = searchEntries(state.assignments, query, elements.searchScopeSelect.value);
+  elements.clearSearchButton.disabled = !elements.searchInput.value;
+  elements.searchSummary.textContent = !query ? "输入关键词，点击结果定位背诵。"
+    : results.length ? `找到 ${results.length} 条 · 点击定位，按原作业顺序继续背诵`
+      : "没有找到，试试更短的关键词或选择所有作业本。";
+  const start = append ? elements.searchResults.children.length : 0;
+  const html = results.slice(start, searchLimit).map(({ assignment, item, index }) => `
+    <li><button class="search-result" type="button" data-search-assignment="${escapeHtml(assignment.id)}" data-search-item="${escapeHtml(item.id)}">
+      <span class="search-result-meta"><span>${escapeHtml(assignment.title)} · 第 ${index + 1} 条</span><span class="status-pill status-${item.status}">${STATUS_LABELS[item.status] || STATUS_LABELS.new}</span></span>
+      ${item.prompt ? `<span class="search-result-prompt" lang="zh-CN">${escapeHtml(item.prompt)}</span>` : ""}
+      <span class="search-result-answer" lang="en">${escapeHtml(item.answer || "（缺少英文）")}</span>
+    </button></li>`).join("");
+  if (append) elements.searchResults.insertAdjacentHTML("beforeend", html);
+  else { elements.searchResults.innerHTML = html; elements.searchResultsBody.scrollTop = 0; }
+  elements.moreSearchButton.hidden = results.length <= searchLimit;
+}
+
 function renderAll() {
   renderSideAssignments();
   renderHome();
@@ -630,7 +672,7 @@ function populateStudyFilters(scope = session?.scope || state.activeAssignmentId
   elements.studyStatusFilter.value = ["all", "unknown", "fuzzy", "focus", "mastered"].includes(filter) ? filter : "all";
 }
 
-function startStudy(filter = "all", scope = state.activeAssignmentId, { autoSpeak = true, difficultOnly = false, dueOnly = false } = {}) {
+function startStudy(filter = "all", scope = state.activeAssignmentId, { autoSpeak = true, difficultOnly = false, dueOnly = false, startItemId = null } = {}) {
   if (!state.assignments.length) {
     showToast("请先添加一份背诵作业");
     return false;
@@ -655,11 +697,12 @@ function startStudy(filter = "all", scope = state.activeAssignmentId, { autoSpea
     difficultOnly,
     dueOnly,
     entries,
-    index: 0,
+    index: Math.max(0, entries.findIndex((entry) => entry.itemId === startItemId)),
     revealed: state.settings.alwaysShowAnswer === true,
   };
   populateStudyFilters(normalizedScope, filter);
   showView("study");
+  renderSideAssignments();
   renderStudy();
 
   if (autoSpeak && session.revealed && state.settings.autoSpeak) {
@@ -805,7 +848,8 @@ function moveItem(direction) {
 function keepStudyCardInView() {
   // A long previous entry can leave the next word above the viewport.
   const card = $("#reciteCard");
-  const headerBottom = $(".topbar").getBoundingClientRect().bottom;
+  const header = $(".topbar").getBoundingClientRect();
+  const headerBottom = header.right > card.getBoundingClientRect().left ? header.bottom : 0;
   if (card.getBoundingClientRect().top < headerBottom) card.scrollIntoView({ block: "start", behavior: "auto" });
 }
 
@@ -2098,6 +2142,21 @@ function closeDialogById(id) {
 }
 
 function bindEvents() {
+  elements.searchButton.addEventListener("click", openSearch);
+  elements.searchInput.addEventListener("input", () => renderSearch());
+  elements.searchScopeSelect.addEventListener("change", () => renderSearch());
+  elements.clearSearchButton.addEventListener("click", () => {
+    elements.searchInput.value = "";
+    renderSearch();
+    elements.searchInput.focus();
+  });
+  elements.moreSearchButton.addEventListener("click", () => { searchLimit += 40; renderSearch(true); });
+  elements.searchResults.addEventListener("click", (event) => {
+    const result = event.target.closest("[data-search-item]");
+    if (!result) return;
+    elements.searchDialog.close();
+    startStudy("all", result.dataset.searchAssignment, { autoSpeak: false, startItemId: result.dataset.searchItem });
+  });
   document.addEventListener("click", (event) => {
     const viewButton = event.target.closest("[data-view-target]");
     if (viewButton) {
