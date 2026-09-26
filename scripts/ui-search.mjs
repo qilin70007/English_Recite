@@ -83,5 +83,11 @@ export async function runSearchChecks(browser, baseURL, shots, errors) {
     assert.equal(await page.locator('#studyCounter').textContent(), '1 / 3', 'new sessions still start in imported order');
     await page.locator('#nextItemButton').click();
     assert.match(await page.locator('#answerText').textContent(), /together\.\nWe/);
+    await page.locator('#searchButton').click();
+    await page.locator('#searchInput').fill('name');
+    await page.locator('[data-search-assignment="b"]').click();
+    assert.equal(await page.locator('#studyCounter').textContent(), '1 / 1');
+    await page.locator('.mobile-nav [data-view-target="home"]').click();
+    assert.equal(await page.locator('#activeAssignmentTitle').textContent(), '另一份作业', 'home reflects the notebook opened from search');
   } finally { await context.close(); }
 }

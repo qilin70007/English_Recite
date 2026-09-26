@@ -703,6 +703,7 @@ function startStudy(filter = "all", scope = state.activeAssignmentId, { autoSpea
   populateStudyFilters(normalizedScope, filter);
   showView("study");
   renderSideAssignments();
+  renderHome();
   renderStudy();
 
   if (autoSpeak && session.revealed && state.settings.autoSpeak) {
