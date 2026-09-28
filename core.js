@@ -309,12 +309,58 @@ export function detectSpeechLanguage(text = "") {
     : "en-US";
 }
 
+const SPOKEN_PARTS_OF_SPEECH = Object.freeze({
+  n: "名词", v: "动词", vt: "及物动词", vi: "不及物动词",
+  adj: "形容词", a: "形容词", adv: "副词", ad: "副词",
+  pron: "代词", prep: "介词", conj: "连词", num: "数词",
+  art: "冠词", det: "限定词", aux: "助动词", modal: "情态动词",
+  interj: "感叹词", int: "感叹词", phr: "短语",
+});
+
+function expandSpeechAbbreviations(text) {
+  const withParts = text.replace(/(^|[^A-Za-z0-9_])(interj|modal|pron|prep|conj|adj|adv|num|art|det|aux|int|phr|v[.．]t|v[.．]i|vt|vi|ad|n|v|a)([.．]?)(?![A-Za-z0-9_]|[.．][A-Za-z0-9])/gi,
+    (match, prefix, tag, dot, offset, source) => {
+      const key = tag.toLowerCase().replace(/[.．]/g, "");
+      const before = source.slice(0, offset) + prefix;
+      const after = source.slice(offset + match.length);
+      const chineseGloss = /^\s*[:：]?\s*[\u3400-\u9fff]/.test(after);
+      const bracketed = /[([（【]\s*$/.test(before) && /^\s*[)\]）】]/.test(after);
+      // These labels can also be ordinary words (art, ad, prep) or initials.
+      // Require a gloss, brackets, or a dotted label introducing a line.
+      if (["a", "ad", "art", "prep", "int", "modal"].includes(key)) {
+        const lineLabel = dot && tag === tag.toLowerCase() && !before.split("\n").at(-1).trim();
+        if (!chineseGloss && !bracketed && !(lineLabel && key !== "a")) return match;
+      }
+      if (["n", "v"].includes(key) && !chineseGloss && !bracketed && (!dot || tag !== key)) return match;
+      if (key === "a" && !dot) return match;
+      return prefix + SPOKEN_PARTS_OF_SPEECH[key];
+    });
+  return withParts.replace(/(^|[^A-Za-z0-9_])(sbd|sb|sth)([.．]?)(['’]s)?(?![A-Za-z0-9_]|[.．][A-Za-z0-9])/gi,
+    (match, prefix, tag, dot, possessive, offset, source) => {
+      const word = tag.toLowerCase() === "sth" ? "something" : "somebody";
+      const after = source.slice(offset + match.length);
+      // An abbreviation dot inside a phrase is silent; preserve a sentence end.
+      const sentenceEnd = dot && !possessive && (!after.trim() || /^\s+[A-Z]/.test(after));
+      return prefix + word + (possessive || "") + (sentenceEnd ? "." : "");
+    });
+}
+
+// Pronunciation-only transformation: saved text, cards, search and exports keep
+// the author's original spelling. Protect links/email and match complete tokens.
+export function normalizeSpeechText(text = "") {
+  return normalizeText(text)
+    .split(/((?:https?:\/\/|www\.)[^\s]+|[A-Za-z0-9_.+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/gi)
+    .map((part, index) => index % 2 ? part : expandSpeechAbbreviations(part))
+    .join("");
+}
+
+// Expand dictionary notation before choosing voices, so POS labels use Mandarin.
 // Keep whole Chinese phrases intact, but never send mixed Chinese to an English voice.
 export function buildSpeechSegments(text = "") {
   const segments = [];
   let buffer = "";
   let language = "";
-  for (const character of normalizeText(text)) {
+  for (const character of normalizeSpeechText(text)) {
     const nextLanguage = hasChinese(character) ? "zh-CN" : hasLatin(character) ? "en-US" : "";
     if (nextLanguage && language && nextLanguage !== language) {
       if (buffer.trim()) segments.push({ text: buffer.trim(), language });

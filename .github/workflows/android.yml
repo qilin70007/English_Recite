@@ -107,6 +107,9 @@ jobs:
             adb shell am instrument -w com.qilin.englishrecite.debug.test/com.qilin.englishrecite.PlaybackInstrumentation | tee output/android-playback.txt
             adb logcat -d -s chromium AndroidRuntime EnglishRecite ReciteFixtureTts > output/android-playback-logcat.txt
             grep -F "Background playback checks passed" output/android-playback.txt
+            grep -E "(zho|zh)\|名词 名称" output/android-playback-logcat.txt
+            grep -E "(zho|zh)\|副词 快速地" output/android-playback-logcat.txt
+            grep -E "(eng|en)\|ask somebody to do something[.]" output/android-playback-logcat.txt
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -119,11 +122,11 @@ jobs:
       - name: Prepare download file
         run: |
           mkdir -p output
-          cp app/build/outputs/apk/debug/app-debug.apk output/English_Recite_v1.9.2.apk
+          cp app/build/outputs/apk/debug/app-debug.apk output/English_Recite_v1.9.3.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: English_Recite-Android
-          path: output/English_Recite_v1.9.2.apk
+          path: output/English_Recite_v1.9.3.apk
           if-no-files-found: error
           retention-days: 30

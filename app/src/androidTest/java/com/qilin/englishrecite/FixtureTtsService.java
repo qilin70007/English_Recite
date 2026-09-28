@@ -35,7 +35,7 @@ public class FixtureTtsService extends TextToSpeechService {
     @Override protected void onStop() { stopped = true; }
     @Override protected void onSynthesizeText(SynthesisRequest request, SynthesisCallback callback) {
         stopped = false;
-        android.util.Log.i("ReciteFixtureTts", request.getCharSequenceText().toString());
+        android.util.Log.i("ReciteFixtureTts", request.getLanguage() + "|" + request.getCharSequenceText().toString());
         callback.start(16000, AudioFormat.ENCODING_PCM_16BIT, 1);
         byte[] pcm = new byte[6400]; // 200 ms, fed through Android's real audio track.
         for (int i = 0; i < pcm.length / 2; i++) {

@@ -91,7 +91,7 @@ public class PlaybackInstrumentation extends Instrumentation {
             activity = (MainActivity) startActivitySync(new Intent(getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             webView = activity.findViewById(R.id.web_view);
             until("document.getElementById('todayReviewButton')");
-            evaluate("localStorage.setItem('englishRecite.state.v1',JSON.stringify({activeAssignmentId:'lock',settings:{autoSpeak:false,repeat:1,playbackMode:'recall',answerWait:3},assignments:[{id:'lock',title:'锁屏测试',items:[{id:'one',prompt:'名称',answer:'name',status:'fuzzy'},{id:'two',prompt:'朋友',answer:'friend',status:'unknown'},{id:'three',prompt:'科学',answer:'science',status:'fuzzy'}]}]}));location.reload();");
+            evaluate("localStorage.setItem('englishRecite.state.v1',JSON.stringify({activeAssignmentId:'lock',settings:{autoSpeak:false,repeat:1,playbackMode:'recall',answerWait:3},assignments:[{id:'lock',title:'锁屏测试',items:[{id:'one',prompt:'n. 名称',answer:'sb name',status:'fuzzy'},{id:'two',prompt:'adv 快速地',answer:'ask sb. to do sth.',status:'unknown'},{id:'three',prompt:'科学',answer:'science',status:'fuzzy'}]}]}));location.reload();");
             until("document.getElementById('activeAssignmentTitle')?.textContent==='锁屏测试'");
             until("String(window.AndroidTts.getStatus()).includes('ready:com.qilin.englishrecite.debug.test')");
             // No JavaScript TTS mock: Android's test voice synthesizes PCM and the
