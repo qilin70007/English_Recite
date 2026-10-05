@@ -4,6 +4,7 @@ import { readFile, mkdir } from "node:fs/promises";
 import { resolve, extname } from "node:path";
 import { chromium } from "playwright";
 import { openZip } from "../archive.js";
+import { runScopeChecks } from "./ui-scope.mjs";
 import { runPronunciationChecks } from "./ui-pronunciation.mjs";
 import { runSearchChecks } from "./ui-search.mjs";
 import { runStudyChecks } from "./ui-study.mjs";
@@ -248,6 +249,7 @@ try {
   assert.equal((await state(page)).assignments[0].items[0].answer, "new entry");
   await context.close();
 
+  await runScopeChecks(browser, baseURL, shots, errors);
   await runPronunciationChecks(browser, baseURL, errors);
   await runSearchChecks(browser, baseURL, shots, errors);
   await runStudyChecks(browser, baseURL, shots, errors);

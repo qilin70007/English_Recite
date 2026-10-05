@@ -31,12 +31,15 @@ test('ordinary articles, words, initials, variables and links are not grammar la
 
 test('POS expansion precedes language selection and preserves multi-line speech order', () => {
   assert.deepEqual(buildSpeechSegments('n. 名称\nadv. 快速地\nask sb. to do sth.'), [
-    { text: '名词 名称\n副词 快速地', language: 'zh-CN' },
+    { text: '名词', language: 'zh-CN', pauseAfter: 350 },
+    { text: '名称', language: 'zh-CN' },
+    { text: '副词', language: 'zh-CN', pauseAfter: 350 },
+    { text: '快速地', language: 'zh-CN' },
     { text: 'ask somebody to do something.', language: 'en-US' },
   ]);
   assert.deepEqual(buildSpeechSegments('help (vt.) sb.'), [
     { text: 'help (', language: 'en-US' },
-    { text: '及物动词)', language: 'zh-CN' },
+    { text: '及物动词', language: 'zh-CN', pauseAfter: 350 },
     { text: 'somebody.', language: 'en-US' },
   ]);
 });
@@ -57,11 +60,28 @@ test('native background queue gets expanded bilingual segments, retaining record
   const items = [{ id: 'a', prompt: 'adv 快速地', answer: 'help sb. do sth.', status: 'fuzzy', audio: { name: 'word.mp3' } }, { id: 'b', prompt: 'n. 名称', answer: "sb's name" }];
   const before = JSON.stringify(items);
   await prepareNativeList(native, 'r', items, 0, { playbackMode: 'recall', answerWait: 5, repeat: 2 }, async () => ({ blob: new Blob(['audio']) }), () => true);
-  assert.deepEqual(payload.items[0].prompt, [{ text: '副词 快速地', language: 'zh-CN' }]);
+  assert.deepEqual(payload.items[0].prompt, [{ text: '副词', language: 'zh-CN', pauseAfter: 350 }, { text: '快速地', language: 'zh-CN' }]);
   assert.deepEqual(payload.items[0].answer, [{ text: 'help somebody do something.', language: 'en-US' }]);
   assert.deepEqual(payload.items[1].answer, [{ text: "somebody's name", language: 'en-US' }]);
   assert.equal(payload.items[0].audio, true);
   assert.equal(payload.recall, true);
   assert.equal(payload.answerWait, 5);
   assert.equal(JSON.stringify(items), before);
+});
+
+test('pauses separate labels from meanings without fragmenting normal Chinese or speaking punctuation', () => {
+  assert.deepEqual(buildSpeechSegments('n. / v. 名称'), [
+    { text: '名词', language: 'zh-CN', pauseAfter: 350 },
+    { text: '动词', language: 'zh-CN', pauseAfter: 350 },
+    { text: '名称', language: 'zh-CN' },
+  ]);
+  assert.deepEqual(buildSpeechSegments('n.：名称'), [
+    { text: '名词', language: 'zh-CN', pauseAfter: 350 },
+    { text: '名称', language: 'zh-CN' },
+  ]);
+  assert.deepEqual(buildSpeechSegments('名称。名词解释。'), [{ text: '名称。名词解释。', language: 'zh-CN' }]);
+  assert.deepEqual(buildSpeechSegments('adv. quickly'), [
+    { text: '副词', language: 'zh-CN', pauseAfter: 350 },
+    { text: 'quickly', language: 'en-US' },
+  ]);
 });

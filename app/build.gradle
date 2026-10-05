@@ -11,8 +11,8 @@ android {
         minSdk 24
         targetSdk 36
         testInstrumentationRunner "com.qilin.englishrecite.PlaybackInstrumentation"
-        versionCode 15
-        versionName "1.9.3"
+        versionCode 16
+        versionName "1.9.4"
     }
 
     buildTypes {

@@ -121,7 +121,10 @@ final class NativeListPlayer {
                 boolean chinese = language.startsWith("zh");
                 steps.add(new Step(currentPhase, s.optString("text"), language, chinese ? 1 : rate(),
                         settings.optString(chinese ? "chineseVoiceURI" : "voiceURI"), 0, null));
-                if (i < segments.length() - 1) steps.add(new Step(currentPhase, null, null, 1, null, 60, null));
+                long pause = Math.max(60, Math.min(1000, s.optLong("pauseAfter", 60)));
+                if (i < segments.length() - 1 || pause > 60) {
+                    steps.add(new Step(currentPhase, null, null, 1, null, pause, null));
+                }
             }
             if (repeat < repeats - 1) steps.add(new Step(currentPhase, null, null, 1, null, 400, null));
         }

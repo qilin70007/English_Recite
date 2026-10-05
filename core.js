@@ -292,7 +292,7 @@ export function matchesStatusFilter(item, filter = "all") {
 export function buildStudyEntries(assignments = [], scope = "all", filter = "all") {
   const selectedAssignments = scope === "all"
     ? assignments
-    : assignments.filter((assignment) => assignment.id === scope);
+    : assignments.filter((assignment) => (Array.isArray(scope) ? scope : [scope]).includes(assignment.id));
   // The saved item array is the import order, or the user's explicitly edited order.
   // Filtering must not reorder it by status or last-reviewed time.
   return selectedAssignments.flatMap((assignment) => (assignment.items || [])
@@ -317,7 +317,7 @@ const SPOKEN_PARTS_OF_SPEECH = Object.freeze({
   interj: "感叹词", int: "感叹词", phr: "短语",
 });
 
-function expandSpeechAbbreviations(text) {
+function expandSpeechAbbreviations(text, markParts = false) {
   const withParts = text.replace(/(^|[^A-Za-z0-9_])(interj|modal|pron|prep|conj|adj|adv|num|art|det|aux|int|phr|v[.．]t|v[.．]i|vt|vi|ad|n|v|a)([.．]?)(?![A-Za-z0-9_]|[.．][A-Za-z0-9])/gi,
     (match, prefix, tag, dot, offset, source) => {
       const key = tag.toLowerCase().replace(/[.．]/g, "");
@@ -333,7 +333,8 @@ function expandSpeechAbbreviations(text) {
       }
       if (["n", "v"].includes(key) && !chineseGloss && !bracketed && (!dot || tag !== key)) return match;
       if (key === "a" && !dot) return match;
-      return prefix + SPOKEN_PARTS_OF_SPEECH[key];
+      const label = SPOKEN_PARTS_OF_SPEECH[key];
+      return prefix + (markParts ? `\uE000${label}\uE001` : label);
     });
   return withParts.replace(/(^|[^A-Za-z0-9_])(sbd|sb|sth)([.．]?)(['’]s)?(?![A-Za-z0-9_]|[.．][A-Za-z0-9])/gi,
     (match, prefix, tag, dot, possessive, offset, source) => {
@@ -348,19 +349,34 @@ function expandSpeechAbbreviations(text) {
 // Pronunciation-only transformation: saved text, cards, search and exports keep
 // the author's original spelling. Protect links/email and match complete tokens.
 export function normalizeSpeechText(text = "") {
+  return speechText(text, false);
+}
+
+function speechText(text, markParts) {
   return normalizeText(text)
+    .replace(/[\uE000\uE001]/g, "")
     .split(/((?:https?:\/\/|www\.)[^\s]+|[A-Za-z0-9_.+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/gi)
-    .map((part, index) => index % 2 ? part : expandSpeechAbbreviations(part))
+    .map((part, index) => index % 2 ? part : expandSpeechAbbreviations(part, markParts))
     .join("");
 }
 
 // Expand dictionary notation before choosing voices, so POS labels use Mandarin.
 // Keep whole Chinese phrases intact, but never send mixed Chinese to an English voice.
 export function buildSpeechSegments(text = "") {
+  return speechText(text, true).split(/(\uE000[^\uE001]+\uE001)/).flatMap((part, index) => {
+    if (part.startsWith("\uE000")) {
+      return [{ text: part.slice(1, -1), language: "zh-CN", pauseAfter: 350 }];
+    }
+    // Closing brackets/colons belong to the label; do not speak them separately.
+    return splitSpeechLanguages(index ? part.replace(/^[\s:：)）\]】]+/, "") : part);
+  });
+}
+
+function splitSpeechLanguages(text) {
   const segments = [];
   let buffer = "";
   let language = "";
-  for (const character of normalizeSpeechText(text)) {
+  for (const character of text) {
     const nextLanguage = hasChinese(character) ? "zh-CN" : hasLatin(character) ? "en-US" : "";
     if (nextLanguage && language && nextLanguage !== language) {
       if (buffer.trim()) segments.push({ text: buffer.trim(), language });
@@ -369,7 +385,7 @@ export function buildSpeechSegments(text = "") {
     if (nextLanguage) language = nextLanguage;
     buffer += character;
   }
-  if (buffer.trim()) segments.push({ text: buffer.trim(), language: language || "en-US" });
+  if (buffer.trim() && language) segments.push({ text: buffer.trim(), language });
   return segments.flatMap((segment) => {
     // Stay below Android's input limit, splitting at sentence/word boundaries.
     const chunks = [];

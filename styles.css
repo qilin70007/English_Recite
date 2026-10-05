@@ -800,6 +800,20 @@ svg {
   background: #fff;
 }
 
+.study-scope-field { min-width: 0; display: grid; gap: 5px; }
+.study-scope-label { display: flex; align-items: center; justify-content: space-between; gap: 4px; flex-wrap: wrap; }
+.study-scope-label label { color: var(--muted); font-size: 11px; font-weight: 700; }
+.study-scope-label .text-button { min-height: 30px; padding: 3px 0; font-size: 12px; }
+.library-selection-bar { position: sticky; top: 84px; z-index: 2; display: grid; gap: 10px; margin-bottom: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow-small); }
+.library-selection-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font-size: 13px; }
+.library-selection-summary > span { margin-right: auto; }
+.library-selection-summary .text-button { min-height: 36px; }
+.library-selection-actions { display: flex; gap: 10px; }
+.library-selection-actions .button { flex: 1; min-width: 0; }
+.library-select { display: grid; place-items: center; width: 36px; min-height: 36px; flex-shrink: 0; cursor: pointer; }
+.library-select input { width: 22px; height: 22px; margin: 0; accent-color: var(--primary); cursor: pointer; }
+.library-card.is-selected { border-color: var(--primary); }
+
 .select-label select,
 .field select,
 .field input,
@@ -1693,6 +1707,7 @@ input[role="switch"]:checked::after {
 }
 
 @media (max-width: 720px) {
+  .library-selection-bar { top: 64px; }
   body {
     padding-bottom: calc(74px + env(safe-area-inset-bottom));
   }

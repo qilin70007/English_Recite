@@ -100,6 +100,12 @@ const elements = {
   unknownCount: $("#unknownCount"),
   todayReviewedCount: $("#todayReviewedCount"),
   libraryList: $("#libraryList"),
+  librarySelectionBar: $("#librarySelectionBar"),
+  librarySelectionSummary: $("#librarySelectionSummary"),
+  selectAllLibraryButton: $("#selectAllLibraryButton"),
+  clearLibrarySelectionButton: $("#clearLibrarySelectionButton"),
+  studySelectedButton: $("#studySelectedButton"),
+  studySelectedDifficultButton: $("#studySelectedDifficultButton"),
   startStudyButton: $("#startStudyButton"),
   focusStudyButton: $("#focusStudyButton"),
   overviewHomeButton: $("#overviewHomeButton"),
@@ -114,6 +120,12 @@ const elements = {
   studyAssignmentTitle: $("#studyAssignmentTitle"),
   studyCounter: $("#studyCounter"),
   studyScopeSelect: $("#studyScopeSelect"),
+  selectStudyScopeButton: $("#selectStudyScopeButton"),
+  studyScopeDialog: $("#studyScopeDialog"),
+  studyScopeForm: $("#studyScopeForm"),
+  studyScopeList: $("#studyScopeList"),
+  studyScopeSummary: $("#studyScopeSummary"),
+  confirmStudyScopeButton: $("#confirmStudyScopeButton"),
   studyStatusFilter: $("#studyStatusFilter"),
   applyStudyFilterButton: $("#applyStudyFilterButton"),
   alwaysShowAnswerInput: $("#alwaysShowAnswerInput"),
@@ -287,6 +299,8 @@ function loadState() {
 let state = loadState();
 let currentView = "home";
 let session = null;
+let multiStudyScope = [];
+const librarySelection = new Set();
 let parsedImportItems = [];
 let importPreviewSignature = "";
 let deletedPreviewItem = null;
@@ -412,6 +426,7 @@ function setActiveAssignment(id) {
 function showView(name) {
   stopSpeechAndContinuous();
   currentView = name;
+  if (name === "library") renderLibrary();
   $$(".view").forEach((view) => {
     view.hidden = view.dataset.view !== name;
   });
@@ -508,6 +523,10 @@ function renderHome() {
 }
 
 function renderLibrary() {
+  for (const id of librarySelection) {
+    if (!state.assignments.some((a) => a.id === id)) librarySelection.delete(id);
+  }
+  updateLibrarySelection();
   if (!state.assignments.length) {
     elements.libraryList.innerHTML = `
       <div class="empty-state" style="min-height:390px">
@@ -525,9 +544,10 @@ function renderLibrary() {
       const itemAudioCount = assignment.items.filter((item) => item.audio).length;
       const audioCount = itemAudioCount + (assignment.audio ? 1 : 0);
       return `
-        <article class="library-card" data-assignment-card="${escapeHtml(assignment.id)}">
+        <article class="library-card${librarySelection.has(assignment.id) ? " is-selected" : ""}" data-assignment-card="${escapeHtml(assignment.id)}">
           <div class="library-card-main">
             <div class="library-card-title-row">
+              <label class="library-select"><input type="checkbox" name="libraryNotebook" value="${escapeHtml(assignment.id)}" aria-label="选择${escapeHtml(assignment.title)}" ${librarySelection.has(assignment.id) ? "checked" : ""} /></label>
               <span class="type-chip" style="color:var(--primary);background:var(--primary-soft)">${escapeHtml(TYPE_LABELS[assignment.type])}</span>
               <h2>${escapeHtml(assignment.title)}</h2>
             </div>
@@ -558,6 +578,17 @@ function renderLibrary() {
         </article>`;
     })
     .join("");
+}
+
+function updateLibrarySelection() {
+  const ids = [...librarySelection];
+  const count = sessionEntriesFor(ids, "all").length;
+  const difficult = sessionEntriesFor(ids, "all", { difficultOnly: true }).length;
+  elements.librarySelectionBar.hidden = !state.assignments.length;
+  elements.librarySelectionSummary.textContent = ids.length ? `已选 ${ids.length} 份 · ${count} 条 · 重难点 ${difficult} 条` : "勾选作业本，一起背诵";
+  elements.clearLibrarySelectionButton.disabled = !ids.length;
+  elements.studySelectedButton.disabled = !count;
+  elements.studySelectedDifficultButton.disabled = !difficult;
 }
 
 function openWholeAssignment(id) {
@@ -652,8 +683,8 @@ function addDemoAssignment() {
 
 function assignmentsForScope(scope) {
   if (scope === "all") return state.assignments;
-  const assignment = state.assignments.find((item) => item.id === scope);
-  return assignment ? [assignment] : [];
+  const ids = Array.isArray(scope) ? scope : [scope];
+  return state.assignments.filter((item) => ids.includes(item.id));
 }
 
 function sessionEntriesFor(scope, filter, options = {}) {
@@ -661,15 +692,43 @@ function sessionEntriesFor(scope, filter, options = {}) {
 }
 
 function populateStudyFilters(scope = session?.scope || state.activeAssignmentId || "all", filter = session?.filter || "all") {
+  if (Array.isArray(scope)) multiStudyScope = assignmentsForScope(scope).map((a) => a.id);
   elements.studyScopeSelect.innerHTML = '<option value="all">所有作业本</option>' + state.assignments
     .map((assignment) => `<option value="${escapeHtml(assignment.id)}">${escapeHtml(assignment.title)}</option>`)
-    .join("");
-  elements.studyScopeSelect.value = scope === "all" || state.assignments.some((item) => item.id === scope)
+    .join("") + (Array.isArray(scope) ? `<option value="selected">已选 ${multiStudyScope.length} 份作业本</option>` : "");
+  elements.studyScopeSelect.value = Array.isArray(scope) ? "selected" : scope === "all" || state.assignments.some((item) => item.id === scope)
     ? scope
     : "all";
+  elements.studyScopeSelect.title = Array.isArray(scope) ? assignmentsForScope(scope).map((a) => a.title).join("、") : "";
   elements.onlyDifficultInput.checked = session?.difficultOnly === true;
   elements.onlyDueInput.checked = session?.dueOnly === true;
   elements.studyStatusFilter.value = ["all", "unknown", "fuzzy", "focus", "mastered"].includes(filter) ? filter : "all";
+}
+
+function selectedStudyScope() {
+  return elements.studyScopeSelect.value === "selected" ? [...multiStudyScope] : elements.studyScopeSelect.value;
+}
+
+function checkedStudyScope() {
+  return $$("[name=studyNotebook]:checked", elements.studyScopeForm).map((input) => input.value);
+}
+
+function updateStudyScopeSummary() {
+  const ids = checkedStudyScope();
+  const count = sessionEntriesFor(ids, elements.studyStatusFilter.value, selectedStudyOptions()).length;
+  const labels = [elements.studyStatusFilter.selectedOptions[0]?.textContent];
+  if (elements.onlyDifficultInput.checked) labels.push("只看重难点");
+  if (elements.onlyDueInput.checked) labels.push("今天到期");
+  elements.studyScopeSummary.textContent = !ids.length ? "请至少选择一份作业本" : `已选 ${ids.length} 份 · ${labels.join(" · ")} · ${count} 条${count ? "" : "，请调整作业范围或背诵类别"}`;
+  elements.confirmStudyScopeButton.disabled = !count;
+}
+
+function openStudyScope() {
+  stopCardPlayback();
+  const ids = new Set(assignmentsForScope(selectedStudyScope()).map((a) => a.id));
+  elements.studyScopeList.innerHTML = state.assignments.map((a) => `<label class="word-notebook-row"><input type="checkbox" name="studyNotebook" value="${escapeHtml(a.id)}" ${ids.has(a.id) ? "checked" : ""} /><span>${escapeHtml(a.title)}<small>共 ${a.items.length} 条 · 重难点 ${a.items.filter((item) => item.difficult).length} 条</small></span></label>`).join("");
+  updateStudyScopeSummary();
+  elements.studyScopeDialog.showModal();
 }
 
 function startStudy(filter = "all", scope = state.activeAssignmentId, { autoSpeak = true, difficultOnly = false, dueOnly = false, startItemId = null } = {}) {
@@ -677,18 +736,18 @@ function startStudy(filter = "all", scope = state.activeAssignmentId, { autoSpea
     showToast("请先添加一份背诵作业");
     return false;
   }
-  const normalizedScope = scope === "all" || state.assignments.some((item) => item.id === scope)
+  const normalizedScope = Array.isArray(scope) ? assignmentsForScope(scope).map((a) => a.id) : scope === "all" || state.assignments.some((item) => item.id === scope)
     ? scope
     : state.activeAssignmentId || "all";
   const entries = sessionEntriesFor(normalizedScope, filter, { difficultOnly, dueOnly });
   if (!entries.length) {
-    const scopeLabel = normalizedScope === "all" ? "所有作业本" : "这份作业本";
+    const scopeLabel = normalizedScope === "all" ? "所有作业本" : "所选作业本";
     showToast(`${scopeLabel}中没有符合当前类别的内容`);
     return false;
   }
 
   if (normalizedScope !== "all") {
-    state.activeAssignmentId = normalizedScope;
+    state.activeAssignmentId = entries[0].assignmentId;
     saveState();
   }
   session = {
@@ -746,7 +805,7 @@ function renderStudy() {
   const position = session.index + 1;
   elements.studyAssignmentTitle.textContent = session.scope === "all"
     ? `全部作业 · ${assignment.title}`
-    : assignment.title;
+    : Array.isArray(session.scope) && session.scope.length > 1 ? `已选 ${session.scope.length} 份 · ${assignment.title}` : assignment.title;
   elements.studyCounter.textContent = `${position} / ${count}`;
   elements.studyProgressBar.style.width = `${(position / count) * 100}%`;
   const recalling = continuousPlaying && state.settings.playbackMode === "recall";
@@ -1019,7 +1078,7 @@ function speakText(text, onDone, options = {}) {
       onDone?.();
       return;
     }
-    const { text: part, language } = segments[step % segments.length];
+    const { text: part, language, pauseAfter = 60 } = segments[step % segments.length];
     // Chinese uses natural speed; the user's slower study rate applies to English/MP3.
     const rate = language === "zh-CN" ? 1 : Number(settings.rate) || 0.85;
     const done = () => {
@@ -1027,9 +1086,10 @@ function speakText(text, onDone, options = {}) {
       step += 1;
       if (step >= segments.length * repeat) {
         elements.speakButton.classList.remove("speaking");
-        onDone?.();
+        if (pauseAfter > 60) playbackDelay(() => { if (runId === speechRunId) onDone?.(); }, pauseAfter);
+        else onDone?.();
       } else {
-        playbackDelay(next, step % segments.length === 0 ? 400 : 60);
+        playbackDelay(next, step % segments.length === 0 ? Math.max(400, pauseAfter) : pauseAfter);
       }
     };
     if (hasNativeTts) {
@@ -1156,8 +1216,8 @@ function speakCurrent(onDone) {
 
 function mp3AssignmentForSelection() {
   if (!session) return null;
-  const scope = elements.studyScopeSelect.value || session.scope;
-  if (scope !== "all") return assignmentsForScope(scope)[0] || null;
+  const scope = selectedStudyScope() || session.scope;
+  if (scope !== "all" && !Array.isArray(scope)) return assignmentsForScope(scope)[0] || null;
   const ids = new Set(sessionEntriesFor(scope, elements.studyStatusFilter.value || session.filter, selectedStudyOptions()).map((entry) => entry.assignmentId));
   return ids.size === 1 ? assignmentsForScope([...ids][0])[0] || null : null;
 }
@@ -1253,10 +1313,10 @@ function playContinuousItem(runId) {
 }
 
 function prepareSelectedStudy() {
-  const scope = elements.studyScopeSelect.value;
+  const scope = selectedStudyScope();
   const filter = elements.studyStatusFilter.value;
   const options = selectedStudyOptions();
-  if (session && session.scope === scope && session.filter === filter && session.difficultOnly === options.difficultOnly && session.dueOnly === options.dueOnly) return true;
+  if (session && JSON.stringify(session.scope) === JSON.stringify(scope) && session.filter === filter && session.difficultOnly === options.difficultOnly && session.dueOnly === options.dueOnly) return true;
   stopSpeechAndContinuous();
   return startStudy(filter, scope, { autoSpeak: false, ...options });
 }
@@ -2248,8 +2308,31 @@ function bindEvents() {
   elements.assignmentMp3Button.addEventListener("click", toggleAssignmentMp3);
   elements.editItemButton.addEventListener("click", openEditItemDialog);
   elements.applyStudyFilterButton.addEventListener("click", () => {
-    startStudy(elements.studyStatusFilter.value, elements.studyScopeSelect.value, selectedStudyOptions());
+    startStudy(elements.studyStatusFilter.value, selectedStudyScope(), selectedStudyOptions());
   });
+  elements.selectStudyScopeButton.addEventListener("click", openStudyScope);
+  elements.studyScopeForm.addEventListener("change", updateStudyScopeSummary);
+  $$('[data-scope-select]').forEach((button) => button.addEventListener("click", () => {
+    $$("[name=studyNotebook]", elements.studyScopeForm).forEach((input) => { input.checked = button.dataset.scopeSelect === "all"; });
+    updateStudyScopeSummary();
+  }));
+  elements.studyScopeForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const ids = checkedStudyScope();
+    if (startStudy(elements.studyStatusFilter.value, ids, selectedStudyOptions())) elements.studyScopeDialog.close();
+  });
+  elements.libraryList.addEventListener("change", (event) => {
+    const input = event.target.closest("[name=libraryNotebook]");
+    if (!input) return;
+    if (input.checked) librarySelection.add(input.value);
+    else librarySelection.delete(input.value);
+    input.closest(".library-card").classList.toggle("is-selected", input.checked);
+    updateLibrarySelection();
+  });
+  elements.selectAllLibraryButton.addEventListener("click", () => { state.assignments.forEach((a) => librarySelection.add(a.id)); renderLibrary(); });
+  elements.clearLibrarySelectionButton.addEventListener("click", () => { librarySelection.clear(); renderLibrary(); });
+  elements.studySelectedButton.addEventListener("click", () => startStudy("all", [...librarySelection]));
+  elements.studySelectedDifficultButton.addEventListener("click", () => startStudy("all", [...librarySelection], { difficultOnly: true }));
   [elements.studyScopeSelect, elements.studyStatusFilter, elements.onlyDifficultInput, elements.onlyDueInput].forEach((select) => select.addEventListener("change", () => {
     stopCardPlayback();
   }));
