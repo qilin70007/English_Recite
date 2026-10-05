@@ -10,14 +10,19 @@ export async function runPronunciationChecks(browser, baseURL, errors) {
           getStatus: () => 'ready:test', getVoices: () => '[]', speakLocalized() {}, stop() {},
           speakWithVoice(text, lang, rate, repeat, id) {
             window.spokenAt.push(performance.now()); window.spoken.push({ text, lang, rate });
-            setTimeout(() => window.dispatchEvent(new CustomEvent('native-tts-done', { detail: { id } })), 20);
+            window.finishSpeech = () => window.dispatchEvent(new CustomEvent('native-tts-done', { detail: { id } }));
+            if (!window.holdSpeech) setTimeout(window.finishSpeech, 20);
           },
         };
       } else {
         window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
         Object.defineProperty(window, 'speechSynthesis', { value: {
           getVoices: () => [{ voiceURI: 'cn', name: '普通话', lang: 'zh-CN' }, { voiceURI: 'en', name: 'English', lang: 'en-US' }],
-          speak(utterance) { window.spokenAt.push(performance.now()); window.spoken.push({ text: utterance.text, lang: utterance.lang, rate: utterance.rate }); setTimeout(() => utterance.onend?.(), 20); },
+          speak(utterance) {
+            window.spokenAt.push(performance.now()); window.spoken.push({ text: utterance.text, lang: utterance.lang, rate: utterance.rate });
+            window.finishSpeech = () => utterance.onend?.();
+            if (!window.holdSpeech) setTimeout(window.finishSpeech, 20);
+          },
           cancel() {}, addEventListener() {},
         } });
       }
@@ -59,10 +64,16 @@ export async function runPronunciationChecks(browser, baseURL, errors) {
         { text: 'quickly', lang: 'en-US', rate: .7 },
       ], `${bridge}: continuous playback normalizes both prompt and answer`);
       assert.ok(await page.evaluate(() => [0, 3, 5].every(i => window.spokenAt[i + 1] - window.spokenAt[i] >= 350)), 'continuous playback pauses after each label');
-      await page.evaluate(() => { window.spoken = []; window.spokenAt = []; });
+      // A completed answer immediately advances the card. Explicitly select the
+      // POS example again, then finish its label and stop within the same task.
+      await page.locator('#applyStudyFilterButton').click();
+      await page.locator('#nextItemButton').click();
+      assert.equal(await page.locator('#answerText').textContent(), 'adv. quickly');
+      await page.evaluate(() => { window.spoken = []; window.spokenAt = []; window.holdSpeech = true; });
       await page.locator('#speakButton').click();
       await page.waitForFunction(() => window.spoken.length === 1);
-      await page.locator('#speakButton').click();
+      assert.equal(await page.evaluate(() => window.spoken[0].text), '副词');
+      await page.evaluate(() => { window.finishSpeech(); document.querySelector('#speakButton').click(); });
       await page.waitForTimeout(500);
       assert.equal(await page.evaluate(() => window.spoken.length), 1, 'stopping during the pause prevents the following meaning');
       assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('englishRecite.state.v1')).assignments), before, 'listening preserves original text and progress');
