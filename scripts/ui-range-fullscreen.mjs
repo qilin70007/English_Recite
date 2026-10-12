@@ -48,11 +48,14 @@ export async function runRangeFullscreenChecks(browser, baseURL, shots, errors) 
     const layout = await page.evaluate(() => {
       const card = document.querySelector('#reciteCard').getBoundingClientRect();
       const exit = document.querySelector('#exitCardFullscreenButton').getBoundingClientRect();
-      return { card: { x: card.x, y: card.y, width: card.width, height: card.height }, exit: { bottom: exit.bottom, right: exit.right }, width: innerWidth, height: innerHeight, overflow: document.documentElement.scrollWidth > innerWidth };
+      return { styles: ['.workspace', '.study-stage', '#reciteCard'].map(s => { const e = document.querySelector(s), c = getComputedStyle(e); return { selector: s, padding: c.padding, margin: c.margin, width: c.width, boxSizing: c.boxSizing }; }), card: { x: card.x, y: card.y, width: card.width, height: card.height }, exit: { bottom: exit.bottom, right: exit.right }, width: innerWidth, height: innerHeight, overflow: document.documentElement.scrollWidth > innerWidth };
     });
+    console.log('Fullscreen layout:', JSON.stringify(layout));
+    await page.screenshot({ path: resolve(shots, 'fullscreen-card-landscape.png'), animations: 'disabled' });
     assert.ok(layout.card.width >= layout.width - 20 && layout.card.height >= layout.height * .7, JSON.stringify(layout));
     assert.ok(layout.exit.right <= layout.width && layout.exit.bottom < layout.height);
     assert.equal(layout.overflow, false);
+    assert.ok(await page.locator('#nextItemButton').evaluate(e => e.getBoundingClientRect().bottom <= innerHeight), 'full screen footer fits the viewport');
     await page.screenshot({ path: resolve(shots, 'fullscreen-card-landscape.png'), animations: 'disabled' });
     await page.locator('#exitCardFullscreenButton').click();
     assert.equal(await page.evaluate(() => window.queueStops), stops, 'exiting full screen does not interrupt playback');

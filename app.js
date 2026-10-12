@@ -2643,7 +2643,7 @@ function bindEvents() {
   elements.reviewAgainButton.addEventListener("click", () => {
     const scope = session?.scope || state.activeAssignmentId;
     elements.completionDialog.close();
-    startStudy("focus", scope, { difficultOnly: session?.difficultOnly, dueOnly: session?.dueOnly, range: session?.range });
+    startStudy("focus", scope, { range: session?.range });
   });
 
   elements.importDialog.addEventListener("close", () => {
@@ -2656,6 +2656,7 @@ function bindEvents() {
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && cardFullscreen && !$("dialog[open]")) { event.preventDefault(); exitCardFullscreen(); return; }
+    if (event.key === " " && document.activeElement === elements.exitCardFullscreenButton) return;
     if (currentView !== "study" || $("dialog[open]") || ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
     if (event.key === "ArrowLeft") moveItem(-1);
     if (event.key === "ArrowRight" || event.key === " ") {
