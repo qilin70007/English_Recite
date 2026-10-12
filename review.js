@@ -1,4 +1,4 @@
-import { STATUS, buildStudyEntries, getTodayKey } from "./core.js";
+import { STATUS, buildStudyEntries, getTodayKey, studyRange } from "./core.js";
 
 export const REVIEW_INTERVALS = [1, 3, 7, 14, 30];
 const weak = (status) => status === STATUS.UNKNOWN || status === STATUS.FUZZY;
@@ -68,8 +68,16 @@ export function isDue(item, assignment, date = new Date()) {
 }
 
 export function learningEntries(assignments, scope = "all", filter = "all", options = {}) {
+  let rangeIds = null;
+  if (options.range) {
+    const book = assignments.find((a) => a.id === options.range.assignmentId);
+    const range = studyRange(book?.items.length, options.range.start, options.range.end);
+    if (!range) return [];
+    rangeIds = new Set(book.items.slice(range.start - 1, range.end).map((item) => item.id));
+  }
   const lookup = new Map(assignments.map((a) => [a.id, { assignment: a, items: new Map(a.items.map((i) => [i.id, i])) }]));
   return buildStudyEntries(assignments, scope, filter).filter((entry) => {
+    if (rangeIds && (entry.assignmentId !== options.range.assignmentId || !rangeIds.has(entry.itemId))) return false;
     const { assignment, items } = lookup.get(entry.assignmentId);
     const item = items.get(entry.itemId);
     return (!options.difficultOnly || item.difficult) && (!options.dueOnly || isDue(item, assignment, options.date));

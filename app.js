@@ -7,6 +7,8 @@ import {
   parseImportedContent,
   reviewedToday,
   summarize,
+  studyGroups,
+  studyRange,
 } from "./core.js";
 import { deleteAudio, deleteAudios, getAudio, saveAudio } from "./audio-store.js";
 import { createUnmasteredDocx, selectUnmastered, missingDictationPrompts } from "./word-export.js";
@@ -59,6 +61,24 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
 const elements = {
+  studyRangeButton: $("#studyRangeButton"),
+  studyRangeSummary: $("#studyRangeSummary"),
+  clearStudyRangeButton: $("#clearStudyRangeButton"),
+  studyRangeDialog: $("#studyRangeDialog"),
+  studyRangeForm: $("#studyRangeForm"),
+  rangeNotebookSelect: $("#rangeNotebookSelect"),
+  rangeNotebookCount: $("#rangeNotebookCount"),
+  rangeSizeInput: $("#rangeSizeInput"),
+  rangeGroups: $("#rangeGroups"),
+  rangeStartInput: $("#rangeStartInput"),
+  rangeEndInput: $("#rangeEndInput"),
+  rangeStatusSelect: $("#rangeStatusSelect"),
+  rangeDifficultInput: $("#rangeDifficultInput"),
+  rangeDueInput: $("#rangeDueInput"),
+  rangeSelectionSummary: $("#rangeSelectionSummary"),
+  startRangeStudyButton: $("#startRangeStudyButton"),
+  enterCardFullscreenButton: $("#enterCardFullscreenButton"),
+  exitCardFullscreenButton: $("#exitCardFullscreenButton"),
   searchButton: $("#searchButton"),
   searchDialog: $("#searchDialog"),
   searchInput: $("#searchInput"),
@@ -234,6 +254,7 @@ function defaultState() {
       playbackMode: "follow",
       answerWait: 5,
       newReviewEnabled: true,
+      studyGroupSize: 20,
     },
   };
 }
@@ -299,6 +320,10 @@ function loadState() {
 let state = loadState();
 let currentView = "home";
 let session = null;
+let cardFullscreen = false;
+let browserFullscreenOwned = false;
+let fullscreenScrollY = 0;
+const landscapeCard = window.matchMedia("(orientation: landscape) and (min-width: 600px)");
 let multiStudyScope = [];
 const librarySelection = new Set();
 let parsedImportItems = [];
@@ -424,6 +449,7 @@ function setActiveAssignment(id) {
 }
 
 function showView(name) {
+  if (name !== "study") exitCardFullscreen(false);
   stopSpeechAndContinuous();
   currentView = name;
   if (name === "library") renderLibrary();
@@ -559,7 +585,7 @@ function renderLibrary() {
               ${audioCount ? `<span>已配 ${audioCount} 个 MP3</span>` : ""}
             </div>
             <div class="mini-progress" aria-label="已掌握 ${summary.mastery}%"><span style="width:${summary.mastery}%"></span></div>
-            <button class="button button-quiet library-overview-button" type="button" data-assignment-action="overview" data-assignment-id="${escapeHtml(assignment.id)}">${icon("book")}整篇查看</button>
+            <div class="library-reading-actions"><button class="button button-quiet library-overview-button" type="button" data-assignment-action="overview" data-assignment-id="${escapeHtml(assignment.id)}">${icon("book")}整篇查看</button><button class="button button-quiet library-overview-button" type="button" data-assignment-action="group" data-assignment-id="${escapeHtml(assignment.id)}">分组背诵</button></div>
           </div>
           <div class="library-card-actions">
             <div class="library-primary-actions">
@@ -703,6 +729,8 @@ function populateStudyFilters(scope = session?.scope || state.activeAssignmentId
   elements.onlyDifficultInput.checked = session?.difficultOnly === true;
   elements.onlyDueInput.checked = session?.dueOnly === true;
   elements.studyStatusFilter.value = ["all", "unknown", "fuzzy", "focus", "mastered"].includes(filter) ? filter : "all";
+  elements.studyRangeSummary.textContent = session?.range ? `本轮：原第 ${session.range.start}–${session.range.end} 条` : "";
+  elements.clearStudyRangeButton.hidden = !session?.range;
 }
 
 function selectedStudyScope() {
@@ -715,7 +743,7 @@ function checkedStudyScope() {
 
 function updateStudyScopeSummary() {
   const ids = checkedStudyScope();
-  const count = sessionEntriesFor(ids, elements.studyStatusFilter.value, selectedStudyOptions()).length;
+  const count = sessionEntriesFor(ids, elements.studyStatusFilter.value, selectedStudyOptions({ keepRange: false })).length;
   const labels = [elements.studyStatusFilter.selectedOptions[0]?.textContent];
   if (elements.onlyDifficultInput.checked) labels.push("只看重难点");
   if (elements.onlyDueInput.checked) labels.push("今天到期");
@@ -731,7 +759,95 @@ function openStudyScope() {
   elements.studyScopeDialog.showModal();
 }
 
-function startStudy(filter = "all", scope = state.activeAssignmentId, { autoSpeak = true, difficultOnly = false, dueOnly = false, startItemId = null } = {}) {
+function rangeBook() {
+  return state.assignments.find((a) => a.id === elements.rangeNotebookSelect.value);
+}
+
+function selectedRange() {
+  const book = rangeBook();
+  const range = studyRange(book?.items.length, elements.rangeStartInput.value, elements.rangeEndInput.value);
+  return range ? { ...range, assignmentId: book.id } : null;
+}
+
+function rangeOptions() {
+  return { range: selectedRange(), difficultOnly: elements.rangeDifficultInput.checked, dueOnly: elements.rangeDueInput.checked };
+}
+
+function updateRangeSummary() {
+  const range = selectedRange();
+  const size = Number(elements.rangeSizeInput.value);
+  const validSize = Number.isInteger(size) && size >= 1 && size <= 1000;
+  const count = range ? sessionEntriesFor(range.assignmentId, elements.rangeStatusSelect.value, rangeOptions()).length : 0;
+  elements.rangeSelectionSummary.textContent = !validSize ? "每组数量请填 1–1000 的整数" : !range ? "请填写作业本内有效的起止序号，结束序号不能小于开始序号" : `原第 ${range.start}–${range.end} 条 · 符合筛选 ${count} 条${count ? "" : "，请调整范围或类别"}`;
+  elements.startRangeStudyButton.disabled = !validSize || !range || !count;
+  $$("[data-range-start]", elements.rangeGroups).forEach((button) => {
+    button.setAttribute("aria-pressed", String(Boolean(range && Number(button.dataset.rangeStart) === range.start && Number(button.dataset.rangeEnd) === range.end)));
+  });
+}
+
+function renderRangeGroups(reset = false) {
+  const count = rangeBook()?.items.length || 0;
+  const size = Number(elements.rangeSizeInput.value);
+  elements.rangeNotebookCount.textContent = `共 ${count} 条`;
+  elements.rangeStartInput.max = elements.rangeEndInput.max = String(count);
+  elements.rangeGroups.innerHTML = size >= 1 && size <= 1000 ? studyGroups(count, size).map((group) => `<button class="range-group" type="button" data-range-start="${group.start}" data-range-end="${group.end}" aria-pressed="false">${group.start}–${group.end}</button>`).join("") : "";
+  if (reset) elements.rangeStartInput.value = "1";
+  if (reset || Number.isInteger(size)) elements.rangeEndInput.value = String(Math.min(count, Number(elements.rangeStartInput.value) + size - 1));
+  updateRangeSummary();
+}
+
+function openStudyRange(id = null) {
+  stopCardPlayback();
+  const fromStudy = !id && currentView === "study";
+  const books = fromStudy ? assignmentsForScope(selectedStudyScope()) : assignmentsForScope(id || state.activeAssignmentId);
+  if (!books.length) { showToast("请先添加一份背诵作业"); return; }
+  elements.rangeNotebookSelect.innerHTML = books.map((a) => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.title)}</option>`).join("");
+  const currentId = id || getSessionAssignment()?.id;
+  if (books.some((a) => a.id === currentId)) elements.rangeNotebookSelect.value = currentId;
+  const size = Number(state.settings.studyGroupSize);
+  elements.rangeSizeInput.value = String(Number.isInteger(size) && size >= 1 && size <= 1000 ? size : 20);
+  elements.rangeStatusSelect.innerHTML = elements.studyStatusFilter.innerHTML;
+  elements.rangeStatusSelect.value = fromStudy ? elements.studyStatusFilter.value : "all";
+  elements.rangeDifficultInput.checked = fromStudy && elements.onlyDifficultInput.checked;
+  elements.rangeDueInput.checked = fromStudy && elements.onlyDueInput.checked;
+  renderRangeGroups(true);
+  if (fromStudy && session?.range?.assignmentId === rangeBook()?.id) {
+    elements.rangeStartInput.value = String(session.range.start);
+    elements.rangeEndInput.value = String(session.range.end);
+    updateRangeSummary();
+  }
+  elements.studyRangeDialog.showModal();
+}
+
+function enterCardFullscreen() {
+  if (!session || currentView !== "study" || !landscapeCard.matches || cardFullscreen) return;
+  fullscreenScrollY = window.scrollY;
+  cardFullscreen = true;
+  document.body.classList.add("card-fullscreen");
+  $("#cardReading").scrollTop = 0;
+  elements.exitCardFullscreenButton.focus({ preventScroll: true });
+  if (typeof window.AndroidDisplay?.setCardFullscreen === "function") {
+    try { window.AndroidDisplay.setCardFullscreen(true); } catch { /* The expanded card still works. */ }
+  } else if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+    browserFullscreenOwned = true;
+    document.documentElement.requestFullscreen().then(() => {
+      if (!cardFullscreen && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    }).catch(() => { browserFullscreenOwned = false; });
+  }
+}
+
+function exitCardFullscreen(restoreFocus = true) {
+  if (!cardFullscreen) return;
+  cardFullscreen = false;
+  document.body.classList.remove("card-fullscreen");
+  try { window.AndroidDisplay?.setCardFullscreen(false); } catch { /* Keep the exit usable. */ }
+  if (browserFullscreenOwned && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  browserFullscreenOwned = false;
+  window.scrollTo({ top: fullscreenScrollY, behavior: "instant" });
+  if (restoreFocus && landscapeCard.matches) elements.enterCardFullscreenButton.focus({ preventScroll: true });
+}
+
+function startStudy(filter = "all", scope = state.activeAssignmentId, { autoSpeak = true, difficultOnly = false, dueOnly = false, startItemId = null, range = null } = {}) {
   if (!state.assignments.length) {
     showToast("请先添加一份背诵作业");
     return false;
@@ -739,7 +855,7 @@ function startStudy(filter = "all", scope = state.activeAssignmentId, { autoSpea
   const normalizedScope = Array.isArray(scope) ? assignmentsForScope(scope).map((a) => a.id) : scope === "all" || state.assignments.some((item) => item.id === scope)
     ? scope
     : state.activeAssignmentId || "all";
-  const entries = sessionEntriesFor(normalizedScope, filter, { difficultOnly, dueOnly });
+  const entries = sessionEntriesFor(normalizedScope, filter, { difficultOnly, dueOnly, range });
   if (!entries.length) {
     const scopeLabel = normalizedScope === "all" ? "所有作业本" : "所选作业本";
     showToast(`${scopeLabel}中没有符合当前类别的内容`);
@@ -755,6 +871,7 @@ function startStudy(filter = "all", scope = state.activeAssignmentId, { autoSpea
     filter,
     difficultOnly,
     dueOnly,
+    range: range ? { ...range } : null,
     entries,
     index: Math.max(0, entries.findIndex((entry) => entry.itemId === startItemId)),
     revealed: state.settings.alwaysShowAnswer === true,
@@ -807,6 +924,11 @@ function renderStudy() {
     ? `全部作业 · ${assignment.title}`
     : Array.isArray(session.scope) && session.scope.length > 1 ? `已选 ${session.scope.length} 份 · ${assignment.title}` : assignment.title;
   elements.studyCounter.textContent = `${position} / ${count}`;
+  const originalPosition = assignment.items.findIndex((entry) => entry.id === item.id) + 1;
+  elements.studyCounter.title = `作业本原第 ${originalPosition} 条`;
+  if (session.range) elements.studyAssignmentTitle.textContent += ` · 第 ${session.range.start}–${session.range.end} 条`;
+  const reading = $("#cardReading");
+  if (reading.dataset.itemId !== item.id) { reading.scrollTop = 0; reading.dataset.itemId = item.id; }
   elements.studyProgressBar.style.width = `${(position / count) * 100}%`;
   const recalling = continuousPlaying && state.settings.playbackMode === "recall";
   elements.alwaysShowAnswerInput.disabled = recalling;
@@ -906,6 +1028,7 @@ function moveItem(direction) {
 }
 
 function keepStudyCardInView() {
+  if (cardFullscreen) return;
   // A long previous entry can leave the next word above the viewport.
   const card = $("#reciteCard");
   const header = $(".topbar").getBoundingClientRect();
@@ -914,6 +1037,7 @@ function keepStudyCardInView() {
 }
 
 function finishSession() {
+  exitCardFullscreen(false);
   stopSpeechAndContinuous();
   if (!session?.entries?.length) {
     showView("home");
@@ -1222,8 +1346,9 @@ function mp3AssignmentForSelection() {
   return ids.size === 1 ? assignmentsForScope([...ids][0])[0] || null : null;
 }
 
-function selectedStudyOptions() {
-  return { difficultOnly: elements.onlyDifficultInput.checked, dueOnly: elements.onlyDueInput.checked };
+function selectedStudyOptions({ keepRange = true } = {}) {
+  const range = keepRange && session?.range && selectedStudyScope() === session.range.assignmentId ? session.range : null;
+  return { difficultOnly: elements.onlyDifficultInput.checked, dueOnly: elements.onlyDueInput.checked, range };
 }
 
 function updateRecallDisplay() {
@@ -1316,7 +1441,7 @@ function prepareSelectedStudy() {
   const scope = selectedStudyScope();
   const filter = elements.studyStatusFilter.value;
   const options = selectedStudyOptions();
-  if (session && JSON.stringify(session.scope) === JSON.stringify(scope) && session.filter === filter && session.difficultOnly === options.difficultOnly && session.dueOnly === options.dueOnly) return true;
+  if (session && JSON.stringify(session.scope) === JSON.stringify(scope) && session.filter === filter && session.difficultOnly === options.difficultOnly && session.dueOnly === options.dueOnly && JSON.stringify(session.range) === JSON.stringify(options.range)) return true;
   stopSpeechAndContinuous();
   return startStudy(filter, scope, { autoSpeak: false, ...options });
 }
@@ -1787,6 +1912,7 @@ function deleteCurrentItem() {
   if (!item || !assignment) return;
   if (!window.confirm("确定删除当前这一条背诵内容吗？")) return;
   assignment.items = assignment.items.filter((candidate) => candidate.id !== item.id);
+  if (session.range) session.range.end -= 1;
   session.entries = session.entries.filter((entry) => !(entry.assignmentId === assignment.id && entry.itemId === item.id));
   if (session.index >= session.entries.length) session.index = Math.max(0, session.entries.length - 1);
   deleteAudio(itemAudioKey(item.id)).catch(() => {});
@@ -1996,6 +2122,7 @@ function downloadJson(data, filename) {
 function handleAssignmentAction(action, id) {
   const assignment = state.assignments.find((item) => item.id === id);
   if (!assignment) return;
+  if (action === "group") { openStudyRange(id); return; }
   if (action === "overview") {
     openWholeAssignment(id);
     return;
@@ -2203,6 +2330,40 @@ function closeDialogById(id) {
 }
 
 function bindEvents() {
+  elements.studyRangeButton.addEventListener("click", () => openStudyRange());
+  elements.clearStudyRangeButton.addEventListener("click", () => startStudy(elements.studyStatusFilter.value, selectedStudyScope(), selectedStudyOptions({ keepRange: false })));
+  elements.rangeNotebookSelect.addEventListener("change", () => renderRangeGroups(true));
+  elements.rangeSizeInput.addEventListener("input", () => renderRangeGroups());
+  elements.rangeStartInput.addEventListener("input", () => {
+    const start = Number(elements.rangeStartInput.value), size = Number(elements.rangeSizeInput.value);
+    if (Number.isInteger(start) && start > 0 && Number.isInteger(size) && size > 0) elements.rangeEndInput.value = String(Math.min(rangeBook()?.items.length || 0, start + size - 1));
+    updateRangeSummary();
+  });
+  elements.studyRangeForm.addEventListener("input", updateRangeSummary);
+  elements.studyRangeForm.addEventListener("change", updateRangeSummary);
+  elements.rangeGroups.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-range-start]");
+    if (!button) return;
+    elements.rangeStartInput.value = button.dataset.rangeStart;
+    elements.rangeEndInput.value = button.dataset.rangeEnd;
+    updateRangeSummary();
+  });
+  elements.studyRangeForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    updateRangeSummary();
+    if (elements.startRangeStudyButton.disabled) return;
+    if (startStudy(elements.rangeStatusSelect.value, rangeBook().id, rangeOptions())) {
+      state.settings.studyGroupSize = Number(elements.rangeSizeInput.value);
+      saveState();
+      elements.studyRangeDialog.close();
+    }
+  });
+  elements.enterCardFullscreenButton.addEventListener("click", enterCardFullscreen);
+  elements.exitCardFullscreenButton.addEventListener("click", () => exitCardFullscreen());
+  landscapeCard.addEventListener("change", () => { if (!landscapeCard.matches) exitCardFullscreen(false); });
+  document.addEventListener("fullscreenchange", () => {
+    if (browserFullscreenOwned && !document.fullscreenElement) exitCardFullscreen();
+  });
   elements.searchButton.addEventListener("click", openSearch);
   elements.searchDialog.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
@@ -2319,7 +2480,7 @@ function bindEvents() {
   elements.studyScopeForm.addEventListener("submit", (event) => {
     event.preventDefault();
     const ids = checkedStudyScope();
-    if (startStudy(elements.studyStatusFilter.value, ids, selectedStudyOptions())) elements.studyScopeDialog.close();
+    if (startStudy(elements.studyStatusFilter.value, ids, selectedStudyOptions({ keepRange: false }))) elements.studyScopeDialog.close();
   });
   elements.libraryList.addEventListener("change", (event) => {
     const input = event.target.closest("[name=libraryNotebook]");
@@ -2482,7 +2643,7 @@ function bindEvents() {
   elements.reviewAgainButton.addEventListener("click", () => {
     const scope = session?.scope || state.activeAssignmentId;
     elements.completionDialog.close();
-    startStudy("focus", scope);
+    startStudy("focus", scope, { difficultOnly: session?.difficultOnly, dueOnly: session?.dueOnly, range: session?.range });
   });
 
   elements.importDialog.addEventListener("close", () => {
@@ -2494,6 +2655,7 @@ function bindEvents() {
   });
 
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && cardFullscreen && !$("dialog[open]")) { event.preventDefault(); exitCardFullscreen(); return; }
     if (currentView !== "study" || $("dialog[open]") || ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
     if (event.key === "ArrowLeft") moveItem(-1);
     if (event.key === "ArrowRight" || event.key === " ") {

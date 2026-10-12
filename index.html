@@ -154,8 +154,11 @@
                   <div class="card-tools"><button class="icon-button difficulty-button" id="difficultyButton" type="button" aria-label="加入重难点" aria-pressed="false" title="加入重难点"><span data-icon="star" aria-hidden="true"></span></button><button class="icon-button" id="editItemButton" type="button" aria-label="编辑当前内容" title="编辑当前内容">
                     <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4ZM13.5 6.5l4 4"/></svg>
                   </button>
+                  <button class="icon-button enter-card-fullscreen" id="enterCardFullscreenButton" type="button" aria-label="全屏单词卡" title="全屏单词卡"><span data-icon="fullscreen" aria-hidden="true"></span></button>
+                  <button class="text-button exit-card-fullscreen" id="exitCardFullscreenButton" type="button"><span data-icon="close" aria-hidden="true"></span>退出全屏</button>
                 </div></div>
 
+                <div class="card-reading" id="cardReading">
                 <div class="prompt-area" id="promptArea">
                   <h2 id="promptText" lang="zh-CN">准备开始</h2>
                 </div>
@@ -170,6 +173,7 @@
                 </button>
 
                 <p class="card-note" id="itemNote" hidden></p>
+                </div>
               </article>
 
               <div class="study-progress" aria-hidden="true"><span id="studyProgressBar"></span></div>
@@ -206,6 +210,7 @@
               <div class="study-scope-field"><div class="study-scope-label"><label for="studyScopeSelect">作业范围</label><button class="text-button" id="selectStudyScopeButton" type="button" aria-haspopup="dialog" aria-controls="studyScopeDialog">多选作业本</button></div><select id="studyScopeSelect"></select></div>
               <label><span>背诵类别</span><select id="studyStatusFilter"><option value="all">全部内容</option><option value="unknown">只背不认识</option><option value="fuzzy">只背模糊</option><option value="focus">不认识＋模糊</option><option value="mastered">只背已掌握</option></select></label>
               <div class="study-extra-filters"><label><input id="onlyDifficultInput" type="checkbox" />只看重难点</label><label><input id="onlyDueInput" type="checkbox" />今天到期</label></div>
+              <div class="study-range-tools"><button class="text-button" id="studyRangeButton" type="button" aria-haspopup="dialog" aria-controls="studyRangeDialog">分组 / 从第几条开始</button><span id="studyRangeSummary"></span><button class="text-button" id="clearStudyRangeButton" type="button" hidden>恢复整本</button></div>
               <button class="button button-secondary" id="applyStudyFilterButton" type="button">重新开始</button>
             </div>
           </section>
@@ -404,7 +409,7 @@
         </div>
         <p class="field-help">完整备份为 ZIP，包含作业名称、顺序、背诵进度、MP3 原文件及其对应位置。请将备份存到手机“下载”或其他保留位置，恢复时直接选择 ZIP，无需解压。也支持旧 JSON；旧备份未包含的音频只能连接本机已有文件。</p>
         <p class="backup-status" id="backupStatus" role="status" aria-live="polite"></p>
-        <div class="modal-actions"><small class="app-version">版本 1.9.4</small><span class="spacer"></span><button class="button button-primary" type="submit">保存设置</button></div>
+        <div class="modal-actions"><small class="app-version">版本 1.9.5</small><span class="spacer"></span><button class="button button-primary" type="submit">保存设置</button></div>
       </form>
     </dialog>
 
@@ -424,6 +429,21 @@
         <label class="field"><span>导出版式</span><select id="wordLayoutSelect"><option value="bilingual">中英对照版</option><option value="dictation">中文默写版（不含英文答案）</option></select></label>
         <p class="export-summary" id="wordExportSummary" role="status" aria-live="polite"></p>
         <div class="modal-actions"><button class="button button-quiet" type="button" data-close-dialog="wordExportDialog">取消</button><button class="button button-primary" id="saveWordButton" type="submit">导出 .docx</button></div>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="studyRangeDialog" aria-labelledby="studyRangeTitle">
+      <form class="modal-card small" id="studyRangeForm">
+        <div class="modal-header"><h2 id="studyRangeTitle">分组背诵</h2><button class="icon-button" type="button" data-close-dialog="studyRangeDialog" aria-label="关闭分组选择"><span data-icon="close" aria-hidden="true"></span></button></div>
+        <label class="field"><span>选择作业本</span><select id="rangeNotebookSelect"></select></label>
+        <div class="range-size-row"><label for="rangeSizeInput">每组</label><input id="rangeSizeInput" type="number" inputmode="numeric" min="1" max="1000" step="1" value="20" required /><span>条</span><small id="rangeNotebookCount"></small></div>
+        <div class="range-groups" id="rangeGroups" aria-label="按原序号选择分组"></div>
+        <div class="range-bounds"><label class="field"><span>从第几条开始</span><input id="rangeStartInput" type="number" inputmode="numeric" min="1" step="1" required /></label><label class="field"><span>背到第几条</span><input id="rangeEndInput" type="number" inputmode="numeric" min="1" step="1" required /></label></div>
+        <p class="field-help">序号按作业本原顺序。例如输入 60–79，可从第 60 条开始背 20 条。先选范围，再按类别筛选。</p>
+        <label class="field"><span>背诵类别</span><select id="rangeStatusSelect"></select></label>
+        <div class="study-extra-filters"><label><input id="rangeDifficultInput" type="checkbox" />只背重难点</label><label><input id="rangeDueInput" type="checkbox" />今天到期</label></div>
+        <p class="export-summary" id="rangeSelectionSummary" role="status" aria-live="polite"></p>
+        <div class="modal-actions"><button class="button button-quiet" type="button" data-close-dialog="studyRangeDialog">取消</button><button class="button button-primary" id="startRangeStudyButton" type="submit">开始背诵</button></div>
       </form>
     </dialog>
 

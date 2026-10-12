@@ -2158,3 +2158,46 @@ input[role="switch"]:checked::after {
   .is-studying .study-navigation .button > svg { display: none; }
   .is-studying .study-preferences { margin: 8px 0 4px; }
 }
+
+.library-reading-actions { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.study-range-tools { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); }
+.study-range-tools .text-button { min-height: 36px; }
+.range-size-row { display: flex; align-items: center; gap: 8px; margin: 8px 0 12px; }
+.range-size-row input { width: 84px; min-height: 44px; border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+.range-size-row small { margin-left: auto; color: var(--muted); }
+.range-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); gap: 8px; max-height: 180px; overflow-y: auto; padding: 2px; margin-bottom: 16px; }
+.range-group { min-height: 44px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--primary); font-weight: 700; }
+.range-group[aria-pressed=true] { border-color: var(--primary); background: var(--primary); color: #fff; }
+.range-bounds { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.range-bounds input { width: 100%; min-width: 0; }
+.enter-card-fullscreen, .exit-card-fullscreen { display: none; }
+@media (orientation: landscape) and (min-width: 600px) {
+  .enter-card-fullscreen { display: inline-flex; }
+}
+
+/* Reuse the live card and controls: full screen never starts a second player. */
+body.card-fullscreen { padding: 0; overflow: hidden; background: var(--surface); }
+.card-fullscreen .topbar, .card-fullscreen .sidebar, .card-fullscreen .mobile-nav,
+.card-fullscreen .study-assignment-title, .card-fullscreen .study-preferences,
+.card-fullscreen .study-filter-bar, .card-fullscreen .study-progress,
+.card-fullscreen #editItemButton, .card-fullscreen .enter-card-fullscreen { display: none; }
+.card-fullscreen .main-layout { display: block; min-height: 0; }
+.card-fullscreen .workspace { width: 100%; max-width: none; margin: 0; padding: 0; }
+.card-fullscreen .study-view { width: 100%; max-width: none; margin: 0; }
+.card-fullscreen .study-stage { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-template-rows: minmax(0, 1fr) auto; gap: 6px 10px; width: 100%; max-width: none; height: 100vh; height: 100dvh; padding: max(4px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+.card-fullscreen .recite-card { grid-column: 1 / -1; display: flex; flex-direction: column; min-height: 0; border: 0; border-radius: 0; padding: 0 8px; box-shadow: none; overflow: hidden; }
+.card-fullscreen .card-meta { flex-shrink: 0; }
+.card-fullscreen .exit-card-fullscreen { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 44px; padding: 0 8px; font-size: 14px; white-space: nowrap; }
+.card-fullscreen .exit-card-fullscreen svg { width: 20px; height: 20px; }
+.card-fullscreen .card-reading { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: safe center; overflow-y: auto; overscroll-behavior: contain; padding: 2px 0 6px; }
+.card-fullscreen .card-reading > * { flex-shrink: 0; }
+.card-fullscreen .prompt-area { min-height: 0; padding: 4px 8px 12px; }
+.card-fullscreen .prompt-area h2 { max-width: 100%; font-size: clamp(26px, 3.8vw, 44px); line-height: 1.35; }
+.card-fullscreen .answer-panel { min-height: 64px; padding: 12px; }
+.card-fullscreen .answer-copy { font-size: clamp(28px, 4vw, 48px); line-height: 1.35; }
+.card-fullscreen .self-check { grid-column: 1 / 5; align-self: end; margin: 0; padding: 0; }
+.card-fullscreen .status-actions { gap: 4px; }
+.card-fullscreen .status-button { min-height: 44px; padding: 4px; font-size: 13px; }
+.card-fullscreen .status-button > span { display: none; }
+.card-fullscreen .study-navigation { grid-column: 5 / -1; align-self: end; gap: 6px; margin: 0; }
+.card-fullscreen .study-navigation .button { min-height: 44px; }

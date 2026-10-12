@@ -300,6 +300,22 @@ export function buildStudyEntries(assignments = [], scope = "all", filter = "all
     .map((item) => ({ assignmentId: assignment.id, itemId: item.id })));
 }
 
+// Ranges use original, one-based notebook positions, before any status filter.
+export function studyRange(total, start, end) {
+  const values = [total, start, end].map(Number);
+  if (!values.every(Number.isSafeInteger)) return null;
+  const [count, first, last] = values;
+  return first >= 1 && last >= first && last <= count ? { start: first, end: last } : null;
+}
+
+export function studyGroups(total, size = 20) {
+  const count = Number(total), length = Number(size);
+  if (!Number.isSafeInteger(count) || count < 1 || !Number.isSafeInteger(length) || length < 1) return [];
+  return Array.from({ length: Math.ceil(count / length) }, (_, index) => ({
+    start: index * length + 1, end: Math.min(count, (index + 1) * length),
+  }));
+}
+
 export function detectSpeechLanguage(text = "") {
   const value = String(text);
   const chineseCount = (value.match(/[\u3400-\u9fff]/g) || []).length;

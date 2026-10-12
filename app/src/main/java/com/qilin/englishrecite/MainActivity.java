@@ -7,6 +7,7 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
@@ -25,6 +26,9 @@ import android.speech.tts.UtteranceProgressListener;
 import android.speech.tts.Voice;
 import android.util.Base64;
 import android.view.ViewGroup;
+import android.view.View;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.webkit.JavascriptInterface;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.ValueCallback;
@@ -92,6 +96,8 @@ public class MainActivity extends Activity {
     private boolean playbackActive;
     private boolean activityPaused;
     private boolean notificationRequested;
+    private boolean cardFullscreen;
+    private int savedSystemUiVisibility;
     private final Map<String, Runnable> playbackTimers = new HashMap<>();
     private final Runnable stopPlaybackService = () -> {
         if (!playbackActive) {
@@ -241,6 +247,7 @@ public class MainActivity extends Activity {
         webView.addJavascriptInterface(new AndroidListBridge(), "AndroidList");
         webView.addJavascriptInterface(new AndroidFilesBridge(), "AndroidFiles");
         webView.addJavascriptInterface(new AndroidPlaybackBridge(), "AndroidPlayback");
+        webView.addJavascriptInterface(new AndroidDisplayBridge(), "AndroidDisplay");
         webView.requestFocusFromTouch();
 
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
@@ -819,6 +826,49 @@ public class MainActivity extends Activity {
         }
     }
 
+    private final class AndroidDisplayBridge {
+        @JavascriptInterface
+        public void setCardFullscreen(boolean enabled) {
+            runOnUiThread(() -> applyCardFullscreen(enabled));
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void applyCardFullscreen(boolean enabled) {
+        enabled = enabled && getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+        View decor = getWindow().getDecorView();
+        if (enabled && !cardFullscreen) savedSystemUiVisibility = decor.getSystemUiVisibility();
+        cardFullscreen = enabled;
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller != null) {
+                if (enabled) {
+                    controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                    controller.hide(WindowInsets.Type.systemBars());
+                } else controller.show(WindowInsets.Type.systemBars());
+            }
+        } else {
+            decor.setSystemUiVisibility(enabled ? savedSystemUiVisibility | View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    : savedSystemUiVisibility);
+        }
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        if (cardFullscreen && configuration.orientation != Configuration.ORIENTATION_LANDSCAPE) {
+            applyCardFullscreen(false);
+            if (webView != null) webView.evaluateJavascript("document.getElementById('exitCardFullscreenButton')?.click()", null);
+        }
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && cardFullscreen) applyCardFullscreen(true);
+    }
+
     private final class AndroidPlaybackBridge {
         @JavascriptInterface
         public void setActive(boolean active) {
@@ -1111,6 +1161,7 @@ public class MainActivity extends Activity {
         String script = "(function(){"
                 + "const d=document.querySelector('dialog[open]');"
                 + "if(d){if(d.dataset.busy!=='true')d.close();return 'handled';}"
+                + "if(document.body.classList.contains('card-fullscreen')){document.getElementById('exitCardFullscreenButton').click();return 'handled';}"
                 + "const study=document.getElementById('studyView');"
                 + "const library=document.getElementById('libraryView');"
                 + "if((study&&!study.hidden)||(library&&!library.hidden)){"
@@ -1158,6 +1209,7 @@ public class MainActivity extends Activity {
             webView.removeJavascriptInterface("AndroidList");
             webView.removeJavascriptInterface("AndroidFiles");
             webView.removeJavascriptInterface("AndroidPlayback");
+            webView.removeJavascriptInterface("AndroidDisplay");
             webView.stopLoading();
             webView.destroy();
             webView = null;

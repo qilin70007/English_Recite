@@ -4,6 +4,7 @@ import { readFile, mkdir } from "node:fs/promises";
 import { resolve, extname } from "node:path";
 import { chromium } from "playwright";
 import { openZip } from "../archive.js";
+import { runRangeFullscreenChecks } from "./ui-range-fullscreen.mjs";
 import { runScopeChecks } from "./ui-scope.mjs";
 import { runPronunciationChecks } from "./ui-pronunciation.mjs";
 import { runSearchChecks } from "./ui-search.mjs";
@@ -249,6 +250,7 @@ try {
   assert.equal((await state(page)).assignments[0].items[0].answer, "new entry");
   await context.close();
 
+  await runRangeFullscreenChecks(browser, baseURL, shots, errors);
   await runScopeChecks(browser, baseURL, shots, errors);
   await runPronunciationChecks(browser, baseURL, errors);
   await runSearchChecks(browser, baseURL, shots, errors);

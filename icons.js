@@ -5,6 +5,7 @@ const paths = {
   question: '<path d="M9 9a3 3 0 1 1 5 2.2c-1.1.8-2 1.3-2 2.8"/><circle cx="12" cy="18" r=".6" fill="currentColor" stroke="none"/>',
   star: '<path d="m12 3 2.8 5.8 6.4.9-4.6 4.5 1.1 6.4L12 17.6l-5.7 3 1.1-6.4-4.6-4.5 6.4-.9L12 3Z"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
+  fullscreen: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
   up: '<path d="M12 19V5m-6 6 6-6 6 6"/>',
   down: '<path d="M12 5v14m-6-6 6 6 6-6"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',

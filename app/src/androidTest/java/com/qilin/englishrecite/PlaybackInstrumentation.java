@@ -2,6 +2,8 @@ package com.qilin.englishrecite;
 
 import android.app.Instrumentation;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
+import android.view.WindowInsets;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.webkit.WebView;
@@ -50,6 +52,50 @@ public class PlaybackInstrumentation extends Instrumentation {
     }
 
     private JSONObject nativeState() throws Exception { return new JSONObject(activity.listPlaybackState()); }
+
+    private void untilSystemBars(boolean visible) throws Exception {
+        long end = System.currentTimeMillis() + 10000;
+        do {
+            AtomicReference<Boolean> value = new AtomicReference<>(null);
+            runOnMainSync(() -> {
+                WindowInsets insets = activity.getWindow().getDecorView().getRootWindowInsets();
+                if (insets != null) value.set(insets.isVisible(WindowInsets.Type.statusBars())
+                        || insets.isVisible(WindowInsets.Type.navigationBars()));
+            });
+            if (Boolean.valueOf(visible).equals(value.get())) return;
+            Thread.sleep(100);
+        } while (System.currentTimeMillis() < end);
+        throw new AssertionError("System bars did not become " + (visible ? "visible" : "hidden"));
+    }
+
+    private void checkRangeAndFullscreen() throws Exception {
+        runOnMainSync(() -> activity.startActivity(new Intent(activity, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)));
+        evaluate("localStorage.setItem('englishRecite.state.v1',JSON.stringify({activeAssignmentId:'groups',settings:{autoSpeak:false,repeat:1,playbackMode:'recall',answerWait:3},assignments:[{id:'groups',title:'分组测试',items:Array.from({length:103},(_,i)=>({id:'g'+(i+1),prompt:'词条'+(i+1),answer:'Word '+(i+1),status:(i+1)%10===0?'fuzzy':'mastered'}))}]}));location.reload();");
+        until("document.getElementById('activeAssignmentTitle')?.textContent==='分组测试'");
+        evaluate("document.getElementById('startStudyButton').click();document.getElementById('studyRangeButton').click();document.getElementById('rangeStartInput').value='60';document.getElementById('rangeStartInput').dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('startRangeStudyButton').click();");
+        expect("document.getElementById('answerText').textContent==='Word 60' && document.getElementById('studyCounter').textContent==='1 / 20'", "original range starts exactly at item 60");
+        evaluate("document.getElementById('studyStatusFilter').value='fuzzy';document.getElementById('continuousPlayButton').click();");
+        untilNative(s -> s.optBoolean("playing") && s.optString("phase").equals("wait"));
+        if (nativeState().optInt("count") != 2) throw new AssertionError("Only original items 60 and 70 belong to this filtered group");
+        runOnMainSync(() -> activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE));
+        until("matchMedia('(orientation:landscape) and (min-width:600px)').matches");
+        evaluate("document.getElementById('enterCardFullscreenButton').click();");
+        until("document.body.classList.contains('card-fullscreen')");
+        untilSystemBars(false);
+        if (!nativeState().optBoolean("playing")) throw new AssertionError("Full screen must preserve native playback");
+        evaluate("document.getElementById('continuousPlayButton').click();window.cardBeforeExit=document.getElementById('studyCounter').textContent;");
+        untilNative(s -> !s.optBoolean("playing"));
+        runOnMainSync(() -> activity.onBackPressed());
+        until("!document.body.classList.contains('card-fullscreen')");
+        untilSystemBars(true);
+        expect("!document.getElementById('studyView').hidden && document.getElementById('studyCounter').textContent===window.cardBeforeExit", "Android back exits full screen without leaving the card");
+        evaluate("document.getElementById('enterCardFullscreenButton').click();");
+        untilSystemBars(false);
+        runOnMainSync(() -> activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT));
+        until("!document.body.classList.contains('card-fullscreen')");
+        untilSystemBars(true);
+        expect("document.getElementById('studyCounter').textContent===window.cardBeforeExit", "portrait restores normal layout at the same card");
+    }
 
     private JSONObject untilNative(java.util.function.Predicate<JSONObject> condition) throws Exception {
         long end = System.currentTimeMillis() + 25000;
@@ -151,7 +197,8 @@ public class PlaybackInstrumentation extends Instrumentation {
             runOnMainSync(() -> getTargetContext().startService(new Intent(getTargetContext(), PlaybackService.class).setAction(PlaybackService.STOP)));
             until("window.lockAudio.paused");
             unlock();
-            result.putString("stream", "\nBackground playback checks passed: real Android TTS callbacks, frozen web timers, native recall loop, filtered per-item MP3/TTS, card sync and notification stop.\n");
+            checkRangeAndFullscreen();
+            result.putString("stream", "\nBackground playback checks passed: real Android TTS callbacks, frozen web timers, native recall loop, filtered per-item MP3/TTS, card sync and notification stop. Group ranges, immersive system bars, Android back and rotation checks passed.\n");
             finish(-1, result);
         } catch (Throwable error) {
             result.putString("stream", "\nBACKGROUND PLAYBACK FAILED: " + android.util.Log.getStackTraceString(error));
