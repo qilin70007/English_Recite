@@ -2176,7 +2176,7 @@ input[role="switch"]:checked::after {
 }
 
 /* Reuse the live card and controls: full screen never starts a second player. */
-bodybody.card-fullscreen { padding: 0; overflow: hidden; background: var(--surface); }
+body.card-fullscreen { padding: 0; overflow: hidden; background: var(--surface); }
 body.card-fullscreen .topbar, body.card-fullscreen .sidebar, body.card-fullscreen .mobile-nav,
 body.card-fullscreen .study-assignment-title, body.card-fullscreen .study-preferences,
 body.card-fullscreen .study-filter-bar, body.card-fullscreen .study-progress,

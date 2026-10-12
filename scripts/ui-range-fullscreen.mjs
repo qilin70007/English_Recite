@@ -42,6 +42,11 @@ export async function runRangeFullscreenChecks(browser, baseURL, shots, errors) 
     assert.deepEqual(await page.evaluate(() => window.queues[0].items.map(i => i.id)), Array.from({ length: 20 }, (_, i) => `w${i + 60}`));
     await page.setViewportSize({ width: 812, height: 375 });
     await page.locator('#enterCardFullscreenButton').click();
+    await page.waitForFunction(() => {
+      const card = document.querySelector('#reciteCard').getBoundingClientRect();
+      return getComputedStyle(document.querySelector('.workspace')).paddingTop === '0px'
+        && card.width >= innerWidth - 20 && card.height >= innerHeight * .7;
+    });
     const stops = await page.evaluate(() => window.queueStops);
     assert.equal(await page.locator('#continuousPlayButton').getAttribute('aria-pressed'), 'true');
     for (const selector of ['.topbar', '.sidebar', '.mobile-nav', '.study-filter-bar']) assert.equal(await page.locator(selector).isVisible(), false, selector);
